@@ -1,0 +1,31 @@
+{
+	"ID": "ExampleSong",
+	"Audio": "example.ogg",
+	"Title": "Example Title",
+	"Artist": "Example Artist",
+	"Lyricist": "Example Lyricist",
+	"Composer": "Unknown",
+	"Arranger": "Unknown",
+	"Levels": [
+		{
+			"Editor": "John Editor",
+			"Difficulty": 1,
+			"Path": "level1.json"
+		},
+		{
+			"Editor": "John Editor",
+			"Difficulty": 5,
+			"Path": "level3.json"
+		},
+		{
+			"Editor": "John Editor",
+			"Difficulty": 7,
+			"Path": "level4.json"
+		},
+		{
+			"Editor": "Joe Editor",
+			"Difficulty": 10,
+			"Path": "level5.json"
+		}
+	]
+}
