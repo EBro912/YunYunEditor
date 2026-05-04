@@ -16,8 +16,7 @@
 
 <header class="toolbar">
   <div class="brand">
-    <span class="logo">YY</span>
-    <span class="title">YunYun&nbsp;Editor</span>
+    <span class="title">YunYunEditor</span>
   </div>
   <div class="group">
     <button onclick={() => onNew?.()}>New</button>
@@ -36,16 +35,16 @@
       {@render githubIcon()}
       <span>YunYunLoader</span>
     </a>
-    <button
+    <a
       class="repo-link"
-      type="button"
-      disabled
-      aria-disabled="true"
-      title="YunYunEditor repo — coming soon"
+      href="https://github.com/EBro912/YunYunEditor"
+      target="_blank"
+      rel="noopener noreferrer"
+      title="YunYunEditor on GitHub"
     >
       {@render githubIcon()}
       <span>YunYunEditor</span>
-    </button>
+    </a>
   </div>
 </header>
 
@@ -113,15 +112,6 @@
   }
   .repo-link:hover {
     background: var(--bg-3);
-  }
-  .repo-link[disabled],
-  .repo-link[aria-disabled="true"] {
-    color: var(--fg-mute);
-    cursor: not-allowed;
-  }
-  .repo-link[disabled]:hover,
-  .repo-link[aria-disabled="true"]:hover {
-    background: var(--bg-2);
   }
   .gh-icon {
     flex-shrink: 0;
