@@ -6,6 +6,7 @@
   import { snapTick } from '../../lib/timing/snap';
   import { LANE_RANGE, newId, type SingleNote, type HoldNote, type RushNote } from '../../lib/model/notes';
   import { pushHistory } from '../../lib/state/history';
+  import { transport } from '../../lib/audio/engine';
   import { draw, hitTest, pickCell, tickToY, laneToX, type Viewport, type DrawState } from './NoteRenderer';
 
   let canvasEl: HTMLCanvasElement;
@@ -124,6 +125,29 @@
     return snapTick(tick, lvl.InitTimeSignature, lvl.TimeSignature, $editor.snapDivision);
   }
 
+  // Upper bound for any tick the user can drive (playhead seek, note placement). When audio is
+  // loaded, the song ends at transport.duration(); without audio there's no authoritative bound,
+  // so we leave the tick unclamped at the top end so navigation still works on a fresh project.
+  function maxTickFor(state: DrawState): number {
+    const dur = transport.duration();
+    if (dur <= 0) return Number.POSITIVE_INFINITY;
+    return secondsToTick(dur, state.tempoMap, state.level.ScoreOffset);
+  }
+
+  function clampTick(tick: number, state: DrawState): number {
+    return Math.max(0, Math.min(maxTickFor(state), tick));
+  }
+
+  // Seeks both the editor playhead and the audio transport in lockstep so currentSec / scrollbar /
+  // chart never drift apart while the user is paused. The rAF tick already syncs them while playing.
+  function seekToTick(tick: number, state: DrawState): void {
+    const clamped = clampTick(tick, state);
+    setPlayhead(clamped);
+    if (transport.isLoaded()) {
+      transport.seek(tickToSeconds(clamped, state.tempoMap, state.level.ScoreOffset));
+    }
+  }
+
   function eventXY(e: MouseEvent): { x: number; y: number } {
     const r = canvasEl.getBoundingClientRect();
     return { x: e.clientX - r.left, y: e.clientY - r.top };
@@ -139,8 +163,8 @@
     if (x < vp.playfieldX || x >= vp.playfieldX + vp.playfieldWidth) {
       // Click outside the lane area seeks the playhead. Inverse of secondsToY.
       const sec = playheadSec - (y - vp.playheadY) / vp.pixelsPerSecond;
-      const tick = Math.max(0, secondsToTick(sec, state.tempoMap, state.level.ScoreOffset));
-      setPlayhead(tick);
+      const tick = secondsToTick(sec, state.tempoMap, state.level.ScoreOffset);
+      seekToTick(tick, state);
       return;
     }
 
@@ -180,7 +204,7 @@
 
     // Placement tool
     const cell = pickCell(x, y, vp, state);
-    const tick = snapToCurrent(cell.tick);
+    const tick = clampTick(snapToCurrent(cell.tick), state);
     if (tool === 'single') {
       pushHistory();
       mutateActiveLevel((lvl) => ({
@@ -212,7 +236,8 @@
     const snapped = snapToCurrent(cell.tick);
 
     if (drag.kind === 'place') {
-      drag = { ...drag, currentTick: snapped };
+      // Clamp the trailing edge so a hold/rush dragged past audio end gets capped at the song end.
+      drag = { ...drag, currentTick: clampTick(snapped, state) };
     } else if (drag.kind === 'move') {
       drag = { ...drag, currentTick: snapped, currentLane: cell.lane };
     }
@@ -249,20 +274,22 @@
         const ids = drag.ids;
         pushHistory();
         mutateActiveLevel((lvl) => {
-          const shift = <T extends { id?: string; Tick: number; Lane: number }>(arr: T[]): T[] =>
+          // Rush notes occupy Lane and Lane+1 — clamping to LANE_RANGE.max would push the right
+          // half outside the visible range, where the renderer silently skips it. Use max-1 for rush.
+          const shift = <T extends { id?: string; Tick: number; Lane: number }>(laneMax: number) => (arr: T[]): T[] =>
             arr.map((n) => {
               if (!n.id || !ids.has(n.id)) return n;
               return {
                 ...n,
                 Tick: Math.max(0, n.Tick + dTick),
-                Lane: Math.max(LANE_RANGE.min, Math.min(LANE_RANGE.max, n.Lane + dLane)),
+                Lane: Math.max(LANE_RANGE.min, Math.min(laneMax, n.Lane + dLane)),
               };
             });
           return {
             ...lvl,
-            SingleNotes: shift(lvl.SingleNotes) as SingleNote[],
-            HoldNotes: shift(lvl.HoldNotes) as HoldNote[],
-            RushNotes: shift(lvl.RushNotes) as RushNote[],
+            SingleNotes: shift<SingleNote>(LANE_RANGE.max)(lvl.SingleNotes),
+            HoldNotes: shift<HoldNote>(LANE_RANGE.max)(lvl.HoldNotes),
+            RushNotes: shift<RushNote>(LANE_RANGE.max - 1)(lvl.RushNotes),
           };
         });
       }
@@ -280,9 +307,12 @@
       return;
     }
     // One notch = one beat (TPQN ticks). Sign matches "scroll down → time advances".
+    // Route through seekToTick so the audio transport seeks alongside the playhead — otherwise
+    // currentSec / scrollbar stay frozen until playback resumes, and the playhead can drift past
+    // the song's end where placement/seek would land out of bounds.
     const beats = e.deltaY / 100;
     const tickDelta = Math.round(beats * 480);
-    setPlayhead(Math.max(0, $editor.playheadTick + tickDelta));
+    seekToTick($editor.playheadTick + tickDelta, state);
   }
 
   onMount(() => {

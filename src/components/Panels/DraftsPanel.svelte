@@ -12,8 +12,10 @@
     CURRENT_ID,
     type DraftMeta,
   } from '../../lib/storage/drafts';
-  import { chart, loadFromImport } from '../../lib/state/chartStore';
+  import { get } from 'svelte/store';
+  import { chart, loadFromImport, dirty, markClean } from '../../lib/state/chartStore';
   import { putAudio, getAudio, deleteAudio } from '../../lib/storage/audioStore';
+  import { clearHistory } from '../../lib/state/history';
   import type { ImportedMod } from '../../lib/io/import';
 
   let drafts = $state<DraftMeta[]>([]);
@@ -33,26 +35,62 @@
     const name = nameField.trim() || `Draft ${drafts.length + 1}`;
     const id = newDraftId();
     const c = $chart;
-    writeDraft(id, { song: c.song, levels: c.levels });
-    upsertDraftMeta({ id, name, updatedAt: Date.now(), songId: c.song.ID });
-    // Copy current audio (under the special "current" key) into the named draft.
-    const cur = await getAudio(CURRENT_ID).catch(() => undefined);
-    if (cur) await putAudio({ ...cur, id }).catch(() => undefined);
+    // Copy audio FIRST. If the audio write fails we don't want a draft entry pointing at missing
+    // bytes — bail before writing chart metadata. On success the draft is fully populated.
+    try {
+      const cur = await getAudio(CURRENT_ID);
+      if (cur) await putAudio({ ...cur, id });
+    } catch (err: any) {
+      alert(`Save draft failed (audio): ${err?.message ?? err}`);
+      return;
+    }
+    try {
+      writeDraft(id, { song: c.song, levels: c.levels });
+      upsertDraftMeta({ id, name, updatedAt: Date.now(), songId: c.song.ID });
+    } catch (err: any) {
+      // Roll back everything written under this id. writeDraft may have already persisted the
+      // body before upsertDraftMeta threw — without this the body would orphan in localStorage,
+      // unlisted in the panel and unrecoverable through the UI. deleteDraft is a no-op for keys
+      // that were never written, so it's safe regardless of which step failed.
+      await deleteDraft(id).catch(() => undefined);
+      alert(`Save draft failed: ${err?.message ?? err}`);
+      return;
+    }
     nameField = '';
+    // Current work is now preserved in a named draft, so it can be safely overwritten on next load.
+    markClean();
     refresh();
   }
 
   async function load(id: string) {
+    if (get(dirty)) {
+      const ok = confirm(
+        'Loading this draft will overwrite your current unsaved work. Continue?',
+      );
+      if (!ok) return;
+    }
     const d = readDraft(id);
     if (!d) return;
-    const audio = await getAudio(id).catch(() => undefined);
+    let audio: Awaited<ReturnType<typeof getAudio>>;
+    try {
+      audio = await getAudio(id);
+    } catch (err: any) {
+      alert(`Load draft failed (audio read): ${err?.message ?? err}`);
+      return;
+    }
     // Mirror the named draft's audio into CURRENT_ID before swapping chart state. App.svelte's
     // audio-rehydrate $effect reads from CURRENT_ID and dedupes by filename + byteLength;
-    // without this copy it sees the previously-loaded draft's bytes and skips reload.
-    if (audio) {
-      await putAudio({ ...audio, id: CURRENT_ID }).catch(() => undefined);
-    } else {
-      await deleteAudio(CURRENT_ID).catch(() => undefined);
+    // without this copy it sees the previously-loaded draft's bytes and skips reload. Surface
+    // failures — silently leaving stale CURRENT_ID audio would pair the new chart with old audio.
+    try {
+      if (audio) {
+        await putAudio({ ...audio, id: CURRENT_ID });
+      } else {
+        await deleteAudio(CURRENT_ID);
+      }
+    } catch (err: any) {
+      alert(`Load draft failed (audio swap): ${err?.message ?? err}`);
+      return;
     }
     const mod: ImportedMod = {
       song: d.song,
@@ -63,6 +101,9 @@
     };
     reassignNoteIds(d);
     loadFromImport(mod);
+    // Loading a draft replaces both chart and audio — old history entries refer to the previous
+    // project's audio, which we just overwrote in IDB. Drop them to keep undo coherent.
+    clearHistory();
   }
 
   async function remove(id: string) {
