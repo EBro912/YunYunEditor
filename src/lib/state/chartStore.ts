@@ -24,8 +24,21 @@ export const chart = writable<ChartState>(initial);
 
 // Bumped on every mutation; the autosave layer subscribes to this rather than to the deep state.
 export const dirtyTick = writable(0);
+// Tracks whether the current chart contains unsaved work that a destructive load would clobber.
+// Distinct from dirtyTick: that bumps on every change for autosave/redraw triggering, while this
+// stays sticky-true until the work is preserved (named-draft save, fresh import, new project).
+export const dirty = writable<boolean>(false);
 function bump() {
   dirtyTick.update((n) => n + 1);
+  dirty.set(true);
+}
+
+export function markClean(): void {
+  dirty.set(false);
+}
+
+export function markDirty(): void {
+  dirty.set(true);
 }
 
 export const activeLevel: Readable<LevelJson | null> = derived(chart, ($c) => {
@@ -33,18 +46,22 @@ export const activeLevel: Readable<LevelJson | null> = derived(chart, ($c) => {
   return $c.levels[$c.activeLevelPath] ?? null;
 });
 
-export function setChart(next: ChartState): void {
+export function setChart(next: ChartState, opts: { dirty?: boolean } = {}): void {
   // Selection holds note ids from the previous chart; they don't apply to the new one.
   clearSelection();
   chart.set(next);
   bump();
+  // bump() leaves dirty=true; callers that are loading a clean snapshot (fresh import, named
+  // draft load, newProject) override it back to false. The autoload-from-cache path passes
+  // { dirty: true } so a subsequent draft load still triggers the confirmation prompt.
+  dirty.set(opts.dirty ?? false);
 }
 
-export function loadFromImport(mod: ImportedMod): void {
+export function loadFromImport(mod: ImportedMod, opts: { dirty?: boolean } = {}): void {
   const levels: Record<string, LevelJson> = {};
   for (const [k, v] of mod.levels) levels[k] = v;
   const firstPath = mod.song.Levels[0]?.Path ?? null;
-  setChart({ song: mod.song, levels, activeLevelPath: firstPath });
+  setChart({ song: mod.song, levels, activeLevelPath: firstPath }, opts);
 }
 
 export function setActiveLevel(path: string): void {

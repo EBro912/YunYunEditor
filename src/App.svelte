@@ -13,6 +13,7 @@
   import { chart, activeLevel, dirtyTick, loadFromImport, setChart, mutateActiveLevel } from './lib/state/chartStore';
   import { editor, setPlayhead, setTool, setSnap, setSnapDivision, clearSelection } from './lib/state/editorStore';
   import { undo, redo, pushHistory, clearHistory } from './lib/state/history';
+  import { copySelection, pasteAtPlayhead } from './lib/state/clipboard';
   import { readCurrent, CURRENT_ID, reassignNoteIds } from './lib/storage/drafts';
   import { getAudio, deleteAudio } from './lib/storage/audioStore';
   import { scheduleAutosave, flushNow, setupBeforeUnloadFlush } from './lib/storage/autosave';
@@ -92,7 +93,9 @@
         modFolderName: cur.song.ID || 'mod',
         warnings: [],
       };
-      loadFromImport(mod);
+      // Mark the autoloaded cache as dirty: it's unsaved work that lives only in localStorage.
+      // A subsequent draft load would clobber it, so the Drafts panel needs to prompt.
+      loadFromImport(mod, { dirty: true });
       if (audio) await loadAudioFromBytes(audio.bytes);
       clearHistory();
       return;
@@ -261,6 +264,16 @@
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'o') {
       e.preventDefault();
       importer?.pickFile();
+      return;
+    }
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c') {
+      e.preventDefault();
+      copySelection();
+      return;
+    }
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'v') {
+      e.preventDefault();
+      pasteAtPlayhead();
       return;
     }
 

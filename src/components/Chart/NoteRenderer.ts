@@ -237,7 +237,10 @@ function drawSingle(ctx: CanvasRenderingContext2D, vp: Viewport, state: DrawStat
 function drawHold(ctx: CanvasRenderingContext2D, vp: Viewport, state: DrawState, n: HoldNote): void {
   const { x, y: yStart } = noteRectXY(n.Tick, n.Lane, vp, state);
   const yEnd = tickToY(n.Tick + n.Duration, vp, state.tempoMap, state.level.ScoreOffset);
-  if (yEnd < -NOTE_HEIGHT || yStart > vp.height + NOTE_HEIGHT) return;
+  // Future ticks → smaller y, so yEnd is above yStart on screen. Cull only when the entire span
+  // is off the same edge — a long hold whose tail has already scrolled past the top must still
+  // render its head, so testing yEnd alone would wrongly drop the whole note.
+  if (Math.max(yStart, yEnd) < -NOTE_HEIGHT || Math.min(yStart, yEnd) > vp.height + NOTE_HEIGHT) return;
   const color = laneIsEdge(n.Lane) ? COLORS.noteHoldEdge : COLORS.noteHoldMid;
   const rx = Math.round(x + NOTE_PAD_X);
   const rw = Math.round(vp.laneWidth - NOTE_PAD_X * 2);
@@ -255,7 +258,8 @@ function drawRush(ctx: CanvasRenderingContext2D, vp: Viewport, state: DrawState,
   const xRight = laneToX(n.Lane + 2, vp);
   const yStart = tickToY(n.Tick, vp, state.tempoMap, state.level.ScoreOffset);
   const yEnd = tickToY(n.Tick + n.Duration, vp, state.tempoMap, state.level.ScoreOffset);
-  if (yEnd < -NOTE_HEIGHT || yStart > vp.height + NOTE_HEIGHT) return;
+  // See drawHold: cull on the span's bounding box, not on yEnd alone.
+  if (Math.max(yStart, yEnd) < -NOTE_HEIGHT || Math.min(yStart, yEnd) > vp.height + NOTE_HEIGHT) return;
   const rx = Math.round(xLeft + NOTE_PAD_X);
   const rw = Math.round(xRight - xLeft - NOTE_PAD_X * 2);
   // tail

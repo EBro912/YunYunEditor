@@ -15,6 +15,14 @@
 
   const changelog: ChangelogEntry[] = [
     {
+      version: '0.2.1',
+      changes: [
+        'Added copy / paste for selected notes (Ctrl+C / Ctrl+V). Pasted notes anchor to the playhead and preserve relative timing.',
+        'Loading a draft now prompts for confirmation when you have unsaved work.',
+        'Fixed long Hold and Rush notes disappearing when their tail scrolled off the top of the screen.',
+      ],
+    },
+    {
       version: '0.2.0',
       changes: [
         'Added a volume slider to the transport bar (persists across sessions).',

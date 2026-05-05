@@ -12,7 +12,8 @@
     CURRENT_ID,
     type DraftMeta,
   } from '../../lib/storage/drafts';
-  import { chart, loadFromImport } from '../../lib/state/chartStore';
+  import { get } from 'svelte/store';
+  import { chart, loadFromImport, dirty, markClean } from '../../lib/state/chartStore';
   import { putAudio, getAudio, deleteAudio } from '../../lib/storage/audioStore';
   import { clearHistory } from '../../lib/state/history';
   import type { ImportedMod } from '../../lib/io/import';
@@ -53,10 +54,18 @@
       return;
     }
     nameField = '';
+    // Current work is now preserved in a named draft, so it can be safely overwritten on next load.
+    markClean();
     refresh();
   }
 
   async function load(id: string) {
+    if (get(dirty)) {
+      const ok = confirm(
+        'Loading this draft will overwrite your current unsaved work. Continue?',
+      );
+      if (!ok) return;
+    }
     const d = readDraft(id);
     if (!d) return;
     let audio: Awaited<ReturnType<typeof getAudio>>;
