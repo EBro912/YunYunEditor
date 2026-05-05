@@ -14,6 +14,8 @@ class Transport {
   private ctx: AudioContext | null = null;
   private buffer: AudioBuffer | null = null;
   private source: AudioBufferSourceNode | null = null;
+  private gain: GainNode | null = null;
+  private volume = 1;
   private playStartCtxTime = 0;
   private playStartSongSeconds = 0;
   private playing = false;
@@ -22,8 +24,23 @@ class Transport {
   private loadToken = 0;
 
   ensureContext(): AudioContext {
-    if (!this.ctx) this.ctx = new AudioContext();
+    if (!this.ctx) {
+      this.ctx = new AudioContext();
+      this.gain = this.ctx.createGain();
+      this.gain.gain.value = this.volume;
+      this.gain.connect(this.ctx.destination);
+    }
     return this.ctx;
+  }
+
+  setVolume(v: number): void {
+    const clamped = Math.max(0, Math.min(1, v));
+    this.volume = clamped;
+    if (this.gain) this.gain.gain.value = clamped;
+  }
+
+  getVolume(): number {
+    return this.volume;
   }
 
   async load(bytes: ArrayBuffer): Promise<void> {
@@ -62,7 +79,7 @@ class Transport {
     }
     const src = this.ctx.createBufferSource();
     src.buffer = this.buffer;
-    src.connect(this.ctx.destination);
+    src.connect(this.gain ?? this.ctx.destination);
     const startSec = clamp(this.playStartSongSeconds, 0, this.buffer.duration);
     this.playStartCtxTime = this.ctx.currentTime;
     this.playStartSongSeconds = startSec;

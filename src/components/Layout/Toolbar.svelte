@@ -4,8 +4,9 @@
     onImport?: () => void;
     onImportAudio?: () => void;
     onExport?: () => void;
+    onAbout?: () => void;
   }
-  const { onNew, onImport, onImportAudio, onExport }: Props = $props();
+  const { onNew, onImport, onImportAudio, onExport, onAbout }: Props = $props();
 </script>
 
 {#snippet githubIcon()}
@@ -25,6 +26,15 @@
     <button onclick={() => onExport?.()}>Export</button>
   </div>
   <div class="group right">
+    <button class="about-btn" onclick={() => onAbout?.()} title="About YunYunEditor">
+      <svg class="info-icon" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+        <path
+          fill="currentColor"
+          d="M8 1.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13zM8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0zm-.75 4.5a.75.75 0 1 1 1.5 0 .75.75 0 0 1-1.5 0zM7 7h1.5v5H7V7z"
+        />
+      </svg>
+      <span>About</span>
+    </button>
     <a
       class="repo-link"
       href="https://github.com/EBro912/YunYunLoader"
@@ -115,5 +125,28 @@
   }
   .gh-icon {
     flex-shrink: 0;
+  }
+  .about-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--bg-2);
+    color: var(--fg);
+    border: var(--hairline);
+    padding: 7px 12px;
+    border-radius: 2px;
+    font-size: 13px;
+    cursor: pointer;
+    font-family: inherit;
+  }
+  .about-btn:hover {
+    background: var(--bg-3);
+  }
+  .info-icon {
+    flex-shrink: 0;
+    color: var(--fg-dim);
+  }
+  .about-btn:hover .info-icon {
+    color: var(--accent);
   }
 </style>

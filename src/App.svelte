@@ -5,8 +5,10 @@
   import SidebarRight from './components/Layout/SidebarRight.svelte';
   import Transport from './components/Layout/Transport.svelte';
   import ChartCanvas from './components/Chart/ChartCanvas.svelte';
+  import ChartScrollbar from './components/Chart/ChartScrollbar.svelte';
   import ImportDrop from './components/Modals/ImportDrop.svelte';
   import ExportDialog from './components/Modals/ExportDialog.svelte';
+  import AboutDialog from './components/Modals/AboutDialog.svelte';
 
   import { chart, activeLevel, dirtyTick, loadFromImport, setChart, mutateActiveLevel } from './lib/state/chartStore';
   import { editor, setPlayhead, setTool, setSnap, setSnapDivision, clearSelection } from './lib/state/editorStore';
@@ -22,7 +24,10 @@
   import type { HoldNote, RushNote, SingleNote } from './lib/model/notes';
 
   let exportOpen = $state(false);
+  let aboutOpen = $state(false);
   let importer: ImportDrop | null = $state(null);
+  let centerEl: HTMLElement | null = $state(null);
+  let centerHeight = $state(0);
 
   let currentSec = $state(0);
   let durationSec = $state(0);
@@ -66,6 +71,15 @@
   onMount(async () => {
     setupBeforeUnloadFlush();
     raf = requestAnimationFrame(tick);
+    if (centerEl) {
+      centerHeight = centerEl.getBoundingClientRect().height;
+      const ro = new ResizeObserver(() => {
+        if (centerEl) centerHeight = centerEl.getBoundingClientRect().height;
+      });
+      ro.observe(centerEl);
+      // ResizeObserver lifecycle is tied to the App component; it is cleaned up implicitly when
+      // the document is torn down. No explicit disconnect needed for a top-level singleton.
+    }
     // Try to restore the current draft. Audio comes from IndexedDB.
     const cur = readCurrent();
     if (cur) {
@@ -165,6 +179,15 @@
     const map = buildTempoMap(lvl.InitBpm, lvl.BpmChangeEvents);
     transport.seek(transport.duration());
     setPlayhead(secondsToTick(transport.duration(), map, lvl.ScoreOffset));
+  }
+  function seekToSec(sec: number) {
+    const lvl = $activeLevel;
+    if (!lvl) return;
+    const dur = transport.duration();
+    const clamped = Math.max(0, Math.min(dur, sec));
+    transport.seek(clamped);
+    const map = buildTempoMap(lvl.InitBpm, lvl.BpmChangeEvents);
+    setPlayhead(Math.max(0, secondsToTick(clamped, map, lvl.ScoreOffset)));
   }
 
   const SNAP_LIST: SnapDivision[] = ['1/3', '1/4', '1/6', '1/8', '1/16', '1/32'];
@@ -287,12 +310,20 @@
     onImport={() => importer?.pickFile()}
     onImportAudio={() => importer?.pickAudio()}
     onExport={() => (exportOpen = true)}
+    onAbout={() => (aboutOpen = true)}
   />
 
   <div class="body">
     <SidebarLeft />
-    <main class="center">
+    <main class="center" bind:this={centerEl}>
       <ChartCanvas />
+      <ChartScrollbar
+        currentSec={currentSec}
+        durationSec={durationSec}
+        pixelsPerSecond={$editor.pixelsPerSecond}
+        canvasHeight={centerHeight}
+        onSeek={seekToSec}
+      />
     </main>
     <SidebarRight />
   </div>
@@ -310,6 +341,7 @@
 
 <ImportDrop bind:this={importer} />
 <ExportDialog open={exportOpen} onClose={() => (exportOpen = false)} />
+<AboutDialog open={aboutOpen} onClose={() => (aboutOpen = false)} />
 
 <style>
   .app {
@@ -326,7 +358,7 @@
   .center {
     flex: 1;
     display: flex;
-    flex-direction: column;
+    flex-direction: row;
     min-width: 0;
     background: var(--bg-1);
   }
