@@ -47,6 +47,12 @@ npm run dev      # run a dev build on http://localhost:5173
 npm run build    # builds static files in ./dist/
 npm run preview  # run a preview build on http://localhost:4173
 ```
+## Potential Features
+These are features and/or stretch goals that may make it into future versions of the editor. If you don't see something here you would like added, feel free to open an **Issue**:
+- Built-in conversion of audio files to .ogg
+- Importing maps from similar games (osu! mania, DDR, Beatmania, etc.)
+- Playable chart in-editor with scoring (or at least an auto mode)
+- Auto-BPM detection
 
 ## Issues
 If you run into an issue using the editor, feel free to open an issue in the **Issues** tab. Make sure to be as detailed as possible in your report; include the steps you took to reproduce the error, any relevant log output or errors, as well as screenshots and/or videos of the issue occuring. Check the issues tab before creating a new one to see if another user has already reported your issue.
