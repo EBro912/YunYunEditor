@@ -1,5 +1,6 @@
 <script lang="ts">
   import { activeLevel, patchActiveLevel } from '../../lib/state/chartStore';
+  import { pushHistory } from '../../lib/state/history';
   import type { BpmEvent, TimeSignatureEvent, PhaseEvent, LevelJson } from '../../lib/model/level';
 
   type Tab = 'bpm' | 'ts' | 'phase';
@@ -9,9 +10,18 @@
     return Math.max(initTick + 1, baseTick + 480);
   }
 
+  // Time-signature numerator/denominator feed barTicks() = TPQN*num*4/den, which the grid loop
+  // increments by. Zero, negative, or non-finite values can hang or break rendering, so coerce
+  // raw input to a positive integer and fall back to 1 on garbage.
+  function toPositiveInt(v: string): number {
+    const n = Math.floor(Number(v));
+    return Number.isFinite(n) && n >= 1 ? n : 1;
+  }
+
   function addBpm() {
     const lvl = $activeLevel;
     if (!lvl) return;
+    pushHistory();
     const last = lvl.BpmChangeEvents.at(-1);
     const newEv: BpmEvent = {
       Tick: bumpTick(lvl.InitBpm.Tick, last?.Tick ?? lvl.InitBpm.Tick),
@@ -22,6 +32,7 @@
   function addTs() {
     const lvl = $activeLevel;
     if (!lvl) return;
+    pushHistory();
     const last = lvl.TimeSignature.at(-1);
     const newEv: TimeSignatureEvent = {
       Tick: bumpTick(lvl.InitTimeSignature.Tick, last?.Tick ?? lvl.InitTimeSignature.Tick),
@@ -33,6 +44,7 @@
   function addPhase() {
     const lvl = $activeLevel;
     if (!lvl) return;
+    pushHistory();
     const last = lvl.PhaseChangeEvents.at(-1);
     const newEv: PhaseEvent = { Tick: (last?.Tick ?? 0) + 480 };
     patchActiveLevel({ PhaseChangeEvents: [...lvl.PhaseChangeEvents, newEv].sort((a, b) => a.Tick - b.Tick) });
@@ -44,17 +56,26 @@
     if (!lvl) return;
     patchActiveLevel({ InitBpm: { ...lvl.InitBpm, [field]: v } });
   }
+  // Patches without sorting — sorting on every keystroke would reorder the array while a row is
+  // keyed by index, so the focused DOM input would suddenly point at a different event. Defer
+  // the sort to the field's commit (blur) via the *commit* helpers below.
   function patchBpmAt(idx: number, field: keyof BpmEvent, v: number) {
     const lvl = $activeLevel;
     if (!lvl) return;
     const arr = lvl.BpmChangeEvents.slice();
     arr[idx] = { ...arr[idx], [field]: v };
-    arr.sort((a, b) => a.Tick - b.Tick);
+    patchActiveLevel({ BpmChangeEvents: arr });
+  }
+  function commitBpmSort() {
+    const lvl = $activeLevel;
+    if (!lvl) return;
+    const arr = lvl.BpmChangeEvents.slice().sort((a, b) => a.Tick - b.Tick);
     patchActiveLevel({ BpmChangeEvents: arr });
   }
   function deleteBpmAt(idx: number) {
     const lvl = $activeLevel;
     if (!lvl) return;
+    pushHistory();
     patchActiveLevel({ BpmChangeEvents: lvl.BpmChangeEvents.filter((_, i) => i !== idx) });
   }
 
@@ -69,12 +90,18 @@
     if (!lvl) return;
     const arr = lvl.TimeSignature.slice();
     arr[idx] = { ...arr[idx], [field]: v };
-    arr.sort((a, b) => a.Tick - b.Tick);
+    patchActiveLevel({ TimeSignature: arr });
+  }
+  function commitTsSort() {
+    const lvl = $activeLevel;
+    if (!lvl) return;
+    const arr = lvl.TimeSignature.slice().sort((a, b) => a.Tick - b.Tick);
     patchActiveLevel({ TimeSignature: arr });
   }
   function deleteTsAt(idx: number) {
     const lvl = $activeLevel;
     if (!lvl) return;
+    pushHistory();
     patchActiveLevel({ TimeSignature: lvl.TimeSignature.filter((_, i) => i !== idx) });
   }
 
@@ -83,12 +110,18 @@
     if (!lvl) return;
     const arr = lvl.PhaseChangeEvents.slice();
     arr[idx] = { Tick: v };
-    arr.sort((a, b) => a.Tick - b.Tick);
+    patchActiveLevel({ PhaseChangeEvents: arr });
+  }
+  function commitPhaseSort() {
+    const lvl = $activeLevel;
+    if (!lvl) return;
+    const arr = lvl.PhaseChangeEvents.slice().sort((a, b) => a.Tick - b.Tick);
     patchActiveLevel({ PhaseChangeEvents: arr });
   }
   function deletePhaseAt(idx: number) {
     const lvl = $activeLevel;
     if (!lvl) return;
+    pushHistory();
     patchActiveLevel({ PhaseChangeEvents: lvl.PhaseChangeEvents.filter((_, i) => i !== idx) });
   }
 
@@ -116,10 +149,11 @@
         type="number"
         step="0.001"
         value={lvl.ScoreOffset}
+        onfocus={() => pushHistory()}
         oninput={(e) => patchScoreOffset(Number((e.currentTarget as HTMLInputElement).value))}
       />
-      <button class="mini" onclick={() => patchScoreOffset((lvl.ScoreOffset ?? 0) - 0.001)} title="−1ms">−</button>
-      <button class="mini" onclick={() => patchScoreOffset((lvl.ScoreOffset ?? 0) + 0.001)} title="+1ms">+</button>
+      <button class="mini" onclick={() => { pushHistory(); patchScoreOffset((lvl.ScoreOffset ?? 0) - 0.001); }} title="−1ms">−</button>
+      <button class="mini" onclick={() => { pushHistory(); patchScoreOffset((lvl.ScoreOffset ?? 0) + 0.001); }} title="+1ms">+</button>
     </label>
   </div>
 
@@ -134,6 +168,7 @@
               type="number"
               step="0.001"
               value={lvl.InitBpm.Bpm}
+              onfocus={() => pushHistory()}
               oninput={(e) => patchInitBpm('Bpm', Number((e.currentTarget as HTMLInputElement).value))}
             />
           </td>
@@ -145,6 +180,8 @@
               <input
                 type="number"
                 value={ev.Tick}
+                onfocus={() => pushHistory()}
+                onchange={commitBpmSort}
                 oninput={(e) => patchBpmAt(i, 'Tick', Number((e.currentTarget as HTMLInputElement).value))}
               />
             </td>
@@ -153,6 +190,7 @@
                 type="number"
                 step="0.001"
                 value={ev.Bpm}
+                onfocus={() => pushHistory()}
                 oninput={(e) => patchBpmAt(i, 'Bpm', Number((e.currentTarget as HTMLInputElement).value))}
               />
             </td>
@@ -171,15 +209,19 @@
           <td>
             <input
               type="number"
+              min="1"
               value={lvl.InitTimeSignature.Numerator}
-              oninput={(e) => patchInitTs('Numerator', Number((e.currentTarget as HTMLInputElement).value))}
+              onfocus={() => pushHistory()}
+              oninput={(e) => patchInitTs('Numerator', toPositiveInt((e.currentTarget as HTMLInputElement).value))}
             />
           </td>
           <td>
             <input
               type="number"
+              min="1"
               value={lvl.InitTimeSignature.Denominator}
-              oninput={(e) => patchInitTs('Denominator', Number((e.currentTarget as HTMLInputElement).value))}
+              onfocus={() => pushHistory()}
+              oninput={(e) => patchInitTs('Denominator', toPositiveInt((e.currentTarget as HTMLInputElement).value))}
             />
           </td>
           <td><span class="lock">init</span></td>
@@ -190,21 +232,27 @@
               <input
                 type="number"
                 value={ev.Tick}
+                onfocus={() => pushHistory()}
+                onchange={commitTsSort}
                 oninput={(e) => patchTsAt(i, 'Tick', Number((e.currentTarget as HTMLInputElement).value))}
               />
             </td>
             <td>
               <input
                 type="number"
+                min="1"
                 value={ev.Numerator}
-                oninput={(e) => patchTsAt(i, 'Numerator', Number((e.currentTarget as HTMLInputElement).value))}
+                onfocus={() => pushHistory()}
+                oninput={(e) => patchTsAt(i, 'Numerator', toPositiveInt((e.currentTarget as HTMLInputElement).value))}
               />
             </td>
             <td>
               <input
                 type="number"
+                min="1"
                 value={ev.Denominator}
-                oninput={(e) => patchTsAt(i, 'Denominator', Number((e.currentTarget as HTMLInputElement).value))}
+                onfocus={() => pushHistory()}
+                oninput={(e) => patchTsAt(i, 'Denominator', toPositiveInt((e.currentTarget as HTMLInputElement).value))}
               />
             </td>
             <td><button class="mini" onclick={() => deleteTsAt(i)}>✕</button></td>
@@ -223,6 +271,8 @@
               <input
                 type="number"
                 value={ev.Tick}
+                onfocus={() => pushHistory()}
+                onchange={commitPhaseSort}
                 oninput={(e) => patchPhaseAt(i, Number((e.currentTarget as HTMLInputElement).value))}
               />
             </td>

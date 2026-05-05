@@ -4,7 +4,8 @@
   import { loadFromImport, updateSong } from '../../lib/state/chartStore';
   import { putAudio } from '../../lib/storage/audioStore';
   import { CURRENT_ID } from '../../lib/storage/drafts';
-  import { isOggFilename } from '../../lib/audio/decode';
+  import { isOggFilename, checkOggSize } from '../../lib/audio/decode';
+  import { clearHistory } from '../../lib/state/history';
 
   let dragOver = $state(false);
   // dragenter/dragleave bubble for every nested element transition; track depth so the overlay
@@ -27,10 +28,16 @@
   async function handleZip(file: File) {
     try {
       const mod = await parseZip(file);
+      // Reject oversized audio at the boundary — IndexedDB writes would still succeed, but the
+      // subsequent decode would fail anyway and we'd be carrying multi-MB bytes around for nothing.
+      checkOggSize(mod.audio.bytes.byteLength);
       // Persist audio bytes before mutating chart state — App.svelte's $effect picks up the new bytes
       // by re-reading IndexedDB after dirtyTick bumps.
       await putAudio({ id: CURRENT_ID, filename: mod.audio.filename, mime: mod.audio.mime, bytes: mod.audio.bytes });
       loadFromImport(mod);
+      // History snapshots only carry chart state. After a fresh import the previous history
+      // refers to a different audio file, so undo could pair the old chart with the new audio.
+      clearHistory();
       if (mod.warnings.length > 0) {
         console.warn('import warnings:', mod.warnings);
       }
@@ -41,10 +48,14 @@
 
   async function handleOgg(file: File) {
     try {
+      checkOggSize(file.size);
       const bytes = await file.arrayBuffer();
       await putAudio({ id: CURRENT_ID, filename: file.name, mime: file.type || 'audio/ogg', bytes });
       // Update song.Audio so export uses the new filename. This also bumps dirtyTick → App reloads transport.
       updateSong({ Audio: file.name });
+      // The old IDB audio bytes are gone; an undo of updateSong would restore song.Audio
+      // pointing at audio that no longer exists in storage.
+      clearHistory();
     } catch (err: any) {
       alert(`Audio import failed: ${err?.message ?? err}`);
     }

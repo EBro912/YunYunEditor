@@ -30,28 +30,48 @@ function open(): Promise<IDBDatabase> {
   return dbPromise;
 }
 
-function tx<T>(mode: IDBTransactionMode, fn: (store: IDBObjectStore) => IDBRequest<T>): Promise<T> {
+// Read transactions resolve on the request's onsuccess (the value is what callers want and
+// transaction completion adds nothing). Writes resolve on transaction.oncomplete so callers can
+// trust durability — request.onsuccess fires before the transaction commits, so an earlier resolve
+// would let callers chain dependent work that races the actual write.
+function txRead<T>(fn: (store: IDBObjectStore) => IDBRequest<T>): Promise<T> {
   return open().then(
     (db) =>
       new Promise<T>((resolve, reject) => {
-        const t = db.transaction(STORE_AUDIO, mode);
+        const t = db.transaction(STORE_AUDIO, 'readonly');
         const store = t.objectStore(STORE_AUDIO);
         const r = fn(store);
         r.onsuccess = () => resolve(r.result);
         r.onerror = () => reject(r.error);
         t.onerror = () => reject(t.error);
+        t.onabort = () => reject(t.error ?? new Error('audio transaction aborted'));
+      }),
+  );
+}
+
+function txWrite(fn: (store: IDBObjectStore) => IDBRequest): Promise<void> {
+  return open().then(
+    (db) =>
+      new Promise<void>((resolve, reject) => {
+        const t = db.transaction(STORE_AUDIO, 'readwrite');
+        const store = t.objectStore(STORE_AUDIO);
+        const r = fn(store);
+        r.onerror = () => reject(r.error);
+        t.oncomplete = () => resolve();
+        t.onerror = () => reject(t.error);
+        t.onabort = () => reject(t.error ?? new Error('audio transaction aborted'));
       }),
   );
 }
 
 export async function putAudio(audio: StoredAudio): Promise<void> {
-  await tx('readwrite', (s) => s.put(audio));
+  await txWrite((s) => s.put(audio));
 }
 
 export async function getAudio(id: string): Promise<StoredAudio | undefined> {
-  return tx<StoredAudio | undefined>('readonly', (s) => s.get(id) as IDBRequest<StoredAudio | undefined>);
+  return txRead<StoredAudio | undefined>((s) => s.get(id) as IDBRequest<StoredAudio | undefined>);
 }
 
 export async function deleteAudio(id: string): Promise<void> {
-  await tx('readwrite', (s) => s.delete(id));
+  await txWrite((s) => s.delete(id));
 }

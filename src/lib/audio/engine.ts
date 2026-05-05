@@ -17,6 +17,9 @@ class Transport {
   private playStartCtxTime = 0;
   private playStartSongSeconds = 0;
   private playing = false;
+  // Monotonic load token. Each load() call claims a fresh value; if a slower decode resolves
+  // after a newer load has been issued, we ignore the stale buffer instead of installing it.
+  private loadToken = 0;
 
   ensureContext(): AudioContext {
     if (!this.ctx) this.ctx = new AudioContext();
@@ -26,12 +29,20 @@ class Transport {
   async load(bytes: ArrayBuffer): Promise<void> {
     const ctx = this.ensureContext();
     this.stopInternal();
-    this.buffer = await decodeOgg(ctx, bytes);
+    const token = ++this.loadToken;
+    const decoded = await decodeOgg(ctx, bytes);
+    if (token !== this.loadToken) {
+      // A newer load (or unload) superseded this one mid-decode. Drop the stale buffer.
+      return;
+    }
+    this.buffer = decoded;
     this.playStartSongSeconds = 0;
   }
 
   unload(): void {
     this.stopInternal();
+    // Bump the token so any in-flight decode from a load() call resolves into the discard branch.
+    this.loadToken++;
     this.buffer = null;
     this.playStartSongSeconds = 0;
   }

@@ -128,12 +128,14 @@
   });
 
   async function newProject() {
-    pushHistory();
     flushNow();
     // Drop the IDB audio first — otherwise the audio rehydrate $effect (triggered by setChart's
     // dirtyTick bump) finds the leftover bytes and reloads them straight back into the transport.
     await deleteAudio(CURRENT_ID).catch(() => undefined);
     setChart({ song: emptySong(), levels: {}, activeLevelPath: null });
+    // History snapshots are chart-only; an undo across a project swap would restore the previous
+    // chart against the new (empty) audio. Drop history so undo can't desync them.
+    clearHistory();
     transport.unload();
     durationSec = 0;
   }

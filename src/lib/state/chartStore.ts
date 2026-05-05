@@ -102,6 +102,7 @@ export function addLevel(editor: string, difficulty: number): void {
 }
 
 export function removeLevelRefAt(idx: number): void {
+  let activeChanged = false;
   chart.update((s) => {
     const ref = s.song.Levels[idx];
     if (!ref) return s;
@@ -113,8 +114,12 @@ export function removeLevelRefAt(idx: number): void {
       s.activeLevelPath && (stillReferenced || nextRefs.some((r) => r.Path === s.activeLevelPath))
         ? s.activeLevelPath
         : nextRefs[0]?.Path ?? null;
+    activeChanged = nextActive !== s.activeLevelPath;
     return { ...s, song: { ...s.song, Levels: nextRefs }, levels: nextLevels, activeLevelPath: nextActive };
   });
+  // Selection ids reference the level we just navigated away from; clear them so the next
+  // mutation doesn't apply to whichever stray ids happen to match in the new active level.
+  if (activeChanged) clearSelection();
   bump();
 }
 
@@ -128,6 +133,15 @@ export function duplicateLevelRefAt(idx: number): void {
   const clone: LevelJson | undefined = srcLvl
     ? JSON.parse(JSON.stringify(srcLvl))
     : undefined;
+  if (clone) {
+    // JSON.parse(JSON.stringify(...)) preserves the in-memory `id` field on each note, so the
+    // cloned level would share ids with the source. A selection of either level would then
+    // also "select" the clone's matching notes, and edits would silently apply to both.
+    for (const n of clone.SingleNotes) n.id = newId();
+    for (const n of clone.HoldNotes) n.id = newId();
+    for (const n of clone.ShiftNotes) n.id = newId();
+    for (const n of clone.RushNotes) n.id = newId();
+  }
   chart.update((s) => ({
     ...s,
     song: {
@@ -139,7 +153,7 @@ export function duplicateLevelRefAt(idx: number): void {
   bump();
 }
 
-export function patchLevelRef(idx: number, patch: Partial<{ Editor: string; Difficulty: number; Path: string }>): void {
+export function patchLevelRef(idx: number, patch: Partial<{ Editor: string; Difficulty: number }>): void {
   chart.update((s) => {
     const refs = s.song.Levels.slice();
     if (!refs[idx]) return s;
@@ -147,6 +161,38 @@ export function patchLevelRef(idx: number, patch: Partial<{ Editor: string; Diff
     return { ...s, song: { ...s.song, Levels: refs } };
   });
   bump();
+}
+
+// Atomic Path rename: a free-form Path patch would leave `levels` keyed by the old path,
+// orphaning the level data and breaking the active-level resolver. Move the data to the new key,
+// update activeLevelPath, and reject duplicates / empty paths.
+export function renameLevelRef(idx: number, newPath: string): boolean {
+  let ok = false;
+  chart.update((s) => {
+    const ref = s.song.Levels[idx];
+    if (!ref) return s;
+    const trimmed = newPath.trim();
+    if (!trimmed || trimmed === ref.Path) return s;
+    // Two refs sharing a Path means they share level data; reject a rename that would
+    // collide with another ref because we'd silently merge or clobber the target.
+    if (s.song.Levels.some((r, i) => i !== idx && r.Path === trimmed)) return s;
+    const oldPath = ref.Path;
+    const refs = s.song.Levels.slice();
+    refs[idx] = { ...refs[idx], Path: trimmed };
+    const nextLevels = { ...s.levels };
+    const lvl = nextLevels[oldPath];
+    if (lvl) {
+      nextLevels[trimmed] = lvl;
+      // Mirror removeLevelRefAt: only drop the old key when no other ref still uses it.
+      const stillReferenced = refs.some((r) => r.Path === oldPath);
+      if (!stillReferenced) delete nextLevels[oldPath];
+    }
+    const nextActive = s.activeLevelPath === oldPath ? trimmed : s.activeLevelPath;
+    ok = true;
+    return { ...s, song: { ...s.song, Levels: refs }, levels: nextLevels, activeLevelPath: nextActive };
+  });
+  if (ok) bump();
+  return ok;
 }
 
 export function patchActiveLevel(patch: Partial<LevelJson>): void {

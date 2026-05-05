@@ -249,20 +249,22 @@
         const ids = drag.ids;
         pushHistory();
         mutateActiveLevel((lvl) => {
-          const shift = <T extends { id?: string; Tick: number; Lane: number }>(arr: T[]): T[] =>
+          // Rush notes occupy Lane and Lane+1 — clamping to LANE_RANGE.max would push the right
+          // half outside the visible range, where the renderer silently skips it. Use max-1 for rush.
+          const shift = <T extends { id?: string; Tick: number; Lane: number }>(laneMax: number) => (arr: T[]): T[] =>
             arr.map((n) => {
               if (!n.id || !ids.has(n.id)) return n;
               return {
                 ...n,
                 Tick: Math.max(0, n.Tick + dTick),
-                Lane: Math.max(LANE_RANGE.min, Math.min(LANE_RANGE.max, n.Lane + dLane)),
+                Lane: Math.max(LANE_RANGE.min, Math.min(laneMax, n.Lane + dLane)),
               };
             });
           return {
             ...lvl,
-            SingleNotes: shift(lvl.SingleNotes) as SingleNote[],
-            HoldNotes: shift(lvl.HoldNotes) as HoldNote[],
-            RushNotes: shift(lvl.RushNotes) as RushNote[],
+            SingleNotes: shift<SingleNote>(LANE_RANGE.max)(lvl.SingleNotes),
+            HoldNotes: shift<HoldNote>(LANE_RANGE.max)(lvl.HoldNotes),
+            RushNotes: shift<RushNote>(LANE_RANGE.max - 1)(lvl.RushNotes),
           };
         });
       }

@@ -144,6 +144,9 @@ function drawGrid(ctx: CanvasRenderingContext2D, vp: Viewport, state: DrawState)
     const ts = tsList[si];
     const nextTick = si + 1 < tsList.length ? tsList[si + 1].Tick : FAR_TICK;
     const bt = barTicks(ts);
+    // A garbage time-signature (0, negative, or Infinity) makes the bar loop never advance;
+    // skip the segment instead of hanging the render loop.
+    if (!Number.isFinite(bt) || bt <= 0) continue;
     const beatTicks = TPQN;
     // bars
     for (let t = ts.Tick; t < nextTick; t += bt) {

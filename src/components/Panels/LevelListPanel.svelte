@@ -6,7 +6,9 @@
     removeLevelRefAt,
     duplicateLevelRefAt,
     patchLevelRef,
+    renameLevelRef,
   } from '../../lib/state/chartStore';
+  import { pushHistory } from '../../lib/state/history';
   import { SUPPORTED_LEVELS } from '../../lib/model/level';
 
   let nextEditor = $state('');
@@ -14,7 +16,18 @@
 
   function add() {
     const ed = nextEditor.trim() || 'Editor';
+    pushHistory();
     addLevel(ed, nextDifficulty);
+  }
+
+  function commitPath(idx: number, value: string): void {
+    pushHistory();
+    const ok = renameLevelRef(idx, value);
+    if (!ok) {
+      // Revert the input value by forcing a re-read of the bound state.
+      // Setting .value here is enough because Svelte will overwrite on next render anyway.
+      alert('Path is empty, unchanged, or already in use by another level.');
+    }
   }
 
   // True when the file's `Level` field is one of the slots the base game's song-select surfaces.
@@ -46,8 +59,9 @@
           class="path-edit mono"
           type="text"
           value={ref.Path}
-          oninput={(e) => patchLevelRef(i, { Path: (e.currentTarget as HTMLInputElement).value })}
-          title="file path"
+          onchange={(e) => commitPath(i, (e.currentTarget as HTMLInputElement).value)}
+          onfocus={() => pushHistory()}
+          title="file path (commits on blur)"
         />
         <input
           class="diff-edit mono"
@@ -55,6 +69,7 @@
           min="1"
           max="20"
           value={ref.Difficulty}
+          onfocus={() => pushHistory()}
           oninput={(e) =>
             patchLevelRef(i, {
               Difficulty: Number((e.currentTarget as HTMLInputElement).value) || 1,
@@ -64,10 +79,11 @@
           class="ed-edit"
           type="text"
           value={ref.Editor}
+          onfocus={() => pushHistory()}
           oninput={(e) => patchLevelRef(i, { Editor: (e.currentTarget as HTMLInputElement).value })}
         />
-        <button class="mini" onclick={() => duplicateLevelRefAt(i)} title="duplicate">⧉</button>
-        <button class="mini" onclick={() => removeLevelRefAt(i)} title="remove">✕</button>
+        <button class="mini" onclick={() => { pushHistory(); duplicateLevelRefAt(i); }} title="duplicate">⧉</button>
+        <button class="mini" onclick={() => { pushHistory(); removeLevelRefAt(i); }} title="remove">✕</button>
       </div>
     </li>
   {/each}

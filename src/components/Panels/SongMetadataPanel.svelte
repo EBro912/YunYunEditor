@@ -1,5 +1,6 @@
 <script lang="ts">
   import { chart, updateSong } from '../../lib/state/chartStore';
+  import { pushHistory } from '../../lib/state/history';
   import type { SongJson } from '../../lib/model/song';
 
   function patch(field: keyof SongJson, value: string): void {
@@ -35,6 +36,7 @@
       <input
         type="text"
         value={String($chart.song[f.key] ?? '')}
+        onfocus={() => pushHistory()}
         oninput={(e) => patch(f.key, (e.currentTarget as HTMLInputElement).value)}
       />
     </label>
