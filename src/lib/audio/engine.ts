@@ -47,7 +47,16 @@ class Transport {
     const ctx = this.ensureContext();
     this.stopInternal();
     const token = ++this.loadToken;
-    const decoded = await decodeOgg(ctx, bytes);
+    let decoded: AudioBuffer;
+    try {
+      decoded = await decodeOgg(ctx, bytes);
+    } catch (err) {
+      // Swallow stale rejections: if a newer load/unload bumped the token mid-decode, this
+      // failure is for a superseded request and the App-level catch must not unload the
+      // current buffer. Only propagate when we're still the active load.
+      if (token !== this.loadToken) return;
+      throw err;
+    }
     if (token !== this.loadToken) {
       // A newer load (or unload) superseded this one mid-decode. Drop the stale buffer.
       return;

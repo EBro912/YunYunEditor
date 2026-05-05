@@ -6,6 +6,8 @@ import { chart, mutateActiveLevel } from './chartStore';
 import { editor } from './editorStore';
 import { pushHistory } from './history';
 import { LANE_RANGE, newId, type SingleNote, type HoldNote, type RushNote } from '../model/notes';
+import { transport } from '../audio/engine';
+import { buildTempoMap, secondsToTick } from '../timing/ticks';
 
 interface BaseEntry {
   relTick: number;
@@ -58,6 +60,16 @@ export function pasteAtPlayhead(): boolean {
   if (clipboard.length === 0) return false;
   const baseTick = get(editor).playheadTick;
 
+  // Mirror the song-end clamp ChartCanvas applies to direct placement: when audio is loaded,
+  // no note (or its trailing edge) may extend past transport.duration() in tick space.
+  const c = get(chart);
+  const path = c.activeLevelPath;
+  const lvl = path ? c.levels[path] : null;
+  const dur = transport.duration();
+  const maxTick = lvl && dur > 0
+    ? secondsToTick(dur, buildTempoMap(lvl.InitBpm, lvl.BpmChangeEvents), lvl.ScoreOffset)
+    : Number.POSITIVE_INFINITY;
+
   pushHistory();
   const newIds = new Set<string>();
   mutateActiveLevel((lvl) => {
@@ -70,14 +82,16 @@ export function pasteAtPlayhead(): boolean {
     for (const e of clipboard) {
       const id = newId();
       newIds.add(id);
-      const tick = Math.max(0, baseTick + e.relTick);
+      const tick = Math.max(0, Math.min(maxTick, baseTick + e.relTick));
       if (e.kind === 'single') {
         next.SingleNotes.push({ id, Tick: tick, Lane: clampLane(e.Lane, LANE_RANGE.max), Type: 0 } as SingleNote);
       } else if (e.kind === 'hold') {
-        next.HoldNotes.push({ id, Tick: tick, Lane: clampLane(e.Lane, LANE_RANGE.max), Type: 0, Duration: e.Duration } as HoldNote);
+        const duration = Math.max(0, Math.min(e.Duration, maxTick - tick));
+        next.HoldNotes.push({ id, Tick: tick, Lane: clampLane(e.Lane, LANE_RANGE.max), Type: 0, Duration: duration } as HoldNote);
       } else {
         // Rush spans Lane and Lane+1, so clamp the left lane to max-1 to keep both halves visible.
-        next.RushNotes.push({ id, Tick: tick, Lane: clampLane(e.Lane, LANE_RANGE.max - 1), Type: 0, Duration: e.Duration } as RushNote);
+        const duration = Math.max(0, Math.min(e.Duration, maxTick - tick));
+        next.RushNotes.push({ id, Tick: tick, Lane: clampLane(e.Lane, LANE_RANGE.max - 1), Type: 0, Duration: duration } as RushNote);
       }
     }
     return next;

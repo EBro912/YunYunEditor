@@ -48,8 +48,11 @@
       writeDraft(id, { song: c.song, levels: c.levels });
       upsertDraftMeta({ id, name, updatedAt: Date.now(), songId: c.song.ID });
     } catch (err: any) {
-      // Roll back the audio copy so we don't leak orphan bytes for a draft that won't be listed.
-      await deleteAudio(id).catch(() => undefined);
+      // Roll back everything written under this id. writeDraft may have already persisted the
+      // body before upsertDraftMeta threw — without this the body would orphan in localStorage,
+      // unlisted in the panel and unrecoverable through the UI. deleteDraft is a no-op for keys
+      // that were never written, so it's safe regardless of which step failed.
+      await deleteDraft(id).catch(() => undefined);
       alert(`Save draft failed: ${err?.message ?? err}`);
       return;
     }
