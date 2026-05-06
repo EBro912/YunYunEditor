@@ -1,6 +1,6 @@
 # YunYunEditor
 
-[Editor Link](https://ebro912.github.io/YunYunEditor/)
+[Editor Link](https://ebro912.github.io/YunYunEditor/) | [Discord Server](https://discord.gg/qHD7xeWHUU)
 
 A web-based visual chart editor for [YunYunLoader](https://github.com/EBro912/YunYunLoader/) mods. Runs entirely in the browser; no ads, no accounts, completely free. Your changes are automatically saved locally, and you can save up to 20 drafts of songs you're working on. When finished, easily export your progress to a YunYunLoader ready mod in a single click!
 
