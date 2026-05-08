@@ -7,17 +7,42 @@
     duplicateLevelRefAt,
     patchLevelRef,
     renameLevelRef,
+    setLevelSlotAt,
+    swapLevelSlotAt,
   } from '../../lib/state/chartStore';
   import { pushHistory } from '../../lib/state/history';
   import { SUPPORTED_LEVELS } from '../../lib/model/level';
 
   let nextEditor = $state('');
+  let nextLevel = $state<number>(SUPPORTED_LEVELS[0]);
   let nextDifficulty = $state(1);
+
+  const usedLevels = $derived(
+    new Set(
+      $chart.song.Levels
+        .map((r) => $chart.levels[r.Path]?.Level)
+        .filter((v): v is number => typeof v === 'number'),
+    ),
+  );
+  const freeLevels = $derived((SUPPORTED_LEVELS as readonly number[]).filter((v) => !usedLevels.has(v)));
+
+  // Keep the picker pointed at a free slot as charts are added/removed elsewhere.
+  $effect(() => {
+    if (usedLevels.has(nextLevel) && freeLevels.length > 0) nextLevel = freeLevels[0];
+  });
 
   function add() {
     const ed = nextEditor.trim() || 'Editor';
+    if (freeLevels.length === 0) {
+      alert(`All level slots (${SUPPORTED_LEVELS.join(', ')}) are in use.`);
+      return;
+    }
+    if (usedLevels.has(nextLevel)) {
+      alert(`Level slot ${nextLevel} is already in use.`);
+      return;
+    }
     pushHistory();
-    addLevel(ed, nextDifficulty);
+    addLevel(ed, nextLevel, nextDifficulty);
   }
 
   function commitPath(idx: number, value: string): void {
@@ -33,6 +58,33 @@
   // True when the file's `Level` field is one of the slots the base game's song-select surfaces.
   function isSupportedLevel(lvl: number | undefined): boolean {
     return typeof lvl === 'number' && (SUPPORTED_LEVELS as readonly number[]).includes(lvl);
+  }
+
+  // Per-row slot change. If another chart already holds the picked slot, prompt for a swap
+  // instead of rejecting outright (the old reject-with-alert flow left the <select> visually
+  // stuck on the rejected value because no state changed to drive a re-bind).
+  function changeSlot(idx: number, v: number, target: HTMLSelectElement) {
+    const ref = $chart.song.Levels[idx];
+    if (!ref) return;
+    const cur = $chart.levels[ref.Path]?.Level;
+    if (cur === v) return;
+    const other = $chart.song.Levels.find(
+      (r, i) => i !== idx && $chart.levels[r.Path]?.Level === v,
+    );
+    if (other) {
+      const ok = confirm(
+        `Level slot L${v} is currently used by "${other.Path}".\n\nSwap their slots?`,
+      );
+      if (ok) {
+        pushHistory();
+        if (!swapLevelSlotAt(idx, v)) target.value = String(cur ?? '');
+      } else {
+        target.value = String(cur ?? '');
+      }
+    } else {
+      pushHistory();
+      if (!setLevelSlotAt(idx, v)) target.value = String(cur ?? '');
+    }
   }
 </script>
 
@@ -63,6 +115,22 @@
           onfocus={() => pushHistory()}
           title="file path (commits on blur)"
         />
+        <select
+          class="slot-edit mono"
+          value={lvlFile?.Level ?? ''}
+          onchange={(e) => {
+            const sel = e.currentTarget as HTMLSelectElement;
+            changeSlot(i, Number(sel.value), sel);
+          }}
+          title="Level slot"
+        >
+          {#each SUPPORTED_LEVELS as v}
+            <option value={v}>L{v}</option>
+          {/each}
+          {#if lvlFile && !(SUPPORTED_LEVELS as readonly number[]).includes(lvlFile.Level)}
+            <option value={lvlFile.Level}>L{lvlFile.Level}*</option>
+          {/if}
+        </select>
         <input
           class="diff-edit mono"
           type="number"
@@ -82,23 +150,64 @@
           onfocus={() => pushHistory()}
           oninput={(e) => patchLevelRef(i, { Editor: (e.currentTarget as HTMLInputElement).value })}
         />
-        <button class="mini" onclick={() => { pushHistory(); duplicateLevelRefAt(i); }} title="duplicate">⧉</button>
+        <button
+          class="mini"
+          onclick={() => {
+            if (freeLevels.length === 0) {
+              alert(`Cannot duplicate: all slots (${SUPPORTED_LEVELS.join(', ')}) are in use.`);
+              return;
+            }
+            pushHistory();
+            duplicateLevelRefAt(i);
+          }}
+          title="duplicate"
+        >⧉</button>
         <button class="mini" onclick={() => { pushHistory(); removeLevelRefAt(i); }} title="remove">✕</button>
       </div>
     </li>
   {/each}
 </ul>
 
-<div class="add">
-  <input class="ed mono" type="text" placeholder="editor" bind:value={nextEditor} />
+{#if freeLevels.length === 0}
+  <p
+    class="add-note"
+    title={`All slots (${SUPPORTED_LEVELS.join(', ')}) in use — remove or repurpose a level first`}
+  >
+    All level slots ({SUPPORTED_LEVELS.join(', ')}) are in use.
+  </p>
+{/if}
+<div class="add" class:full={freeLevels.length === 0}>
   <input
+    class="ed mono"
+    type="text"
+    placeholder="editor"
+    bind:value={nextEditor}
+    disabled={freeLevels.length === 0}
+  />
+  <select
     class="lv mono"
+    bind:value={nextLevel}
+    disabled={freeLevels.length === 0}
+    title={freeLevels.length === 0 ? 'All level slots are in use — remove or repurpose a level to free one' : 'Level slot'}
+  >
+    {#each SUPPORTED_LEVELS as v}
+      <option value={v} disabled={usedLevels.has(v)}>L{v}{usedLevels.has(v) ? ' (used)' : ''}</option>
+    {/each}
+  </select>
+  <input
+    class="diff mono"
     type="number"
     min="1"
     max="20"
     bind:value={nextDifficulty}
+    disabled={freeLevels.length === 0}
+    title="Star rating (1..20)"
   />
-  <button onclick={add}>+ Level</button>
+  <button
+    onclick={add}
+    disabled={freeLevels.length === 0}
+    title={freeLevels.length === 0 ? `All slots (${SUPPORTED_LEVELS.join(', ')}) in use — remove a level first` : 'Add a new level'}
+  >+ Level</button>
 </div>
 
 <style>
@@ -152,12 +261,13 @@
   }
   .edit {
     display: grid;
-    grid-template-columns: 1fr 38px 1fr 22px 22px;
+    grid-template-columns: 1fr 50px 50px 1fr 22px 22px;
     gap: 2px;
     padding: 4px;
     background: var(--bg-1);
   }
-  .edit input {
+  .edit input,
+  .edit select {
     background: var(--bg-2);
     border: var(--hairline-soft);
     color: var(--fg);
@@ -166,13 +276,20 @@
     border-radius: 2px;
     min-width: 0;
   }
+  .add-note {
+    margin: var(--sp-2) 0 4px 0;
+    font-size: 10px;
+    color: var(--fg-mute);
+    font-style: italic;
+  }
   .add {
     display: grid;
-    grid-template-columns: 1fr 50px auto;
+    grid-template-columns: 1fr 50px 50px auto;
     gap: 4px;
     margin-top: var(--sp-2);
   }
-  .add input {
+  .add input,
+  .add select {
     background: var(--bg-2);
     border: var(--hairline);
     color: var(--fg);
@@ -187,6 +304,17 @@
     padding: 3px 8px;
     border-radius: 2px;
     cursor: pointer;
+  }
+  .add.full {
+    opacity: 0.45;
+  }
+  .add input:disabled,
+  .add select:disabled,
+  .add button:disabled {
+    background: var(--bg-1);
+    color: var(--fg-mute);
+    border-style: dashed;
+    cursor: not-allowed;
   }
   .mini {
     background: transparent;

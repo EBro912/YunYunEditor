@@ -1,13 +1,17 @@
 <script lang="ts">
   import { activeLevel, patchActiveLevel } from '../../lib/state/chartStore';
+  import { editor } from '../../lib/state/editorStore';
   import { pushHistory } from '../../lib/state/history';
+  import { snapTick } from '../../lib/timing/snap';
   import type { BpmEvent, TimeSignatureEvent, PhaseEvent, LevelJson } from '../../lib/model/level';
 
   type Tab = 'bpm' | 'ts' | 'phase';
   let tab = $state<Tab>('bpm');
 
-  function bumpTick(initTick: number, baseTick: number): number {
-    return Math.max(initTick + 1, baseTick + 480);
+  function spawnTick(lvl: LevelJson): number {
+    const t = $editor.playheadTick;
+    if (!$editor.snapEnabled) return Math.max(0, t);
+    return Math.max(0, snapTick(t, lvl.InitTimeSignature, lvl.TimeSignature, $editor.snapDivision));
   }
 
   // Time-signature numerator/denominator feed barTicks() = TPQN*num*4/den, which the grid loop
@@ -18,35 +22,67 @@
     return Number.isFinite(n) && n >= 1 ? n : 1;
   }
 
+  // Last event strictly before `tick`. New events inherit values from the segment they're being
+  // inserted into, not from the final event in the array — `at(-1)` would silently change the
+  // active tempo/meter between the new event and the next later event when inserting earlier.
+  function lastBefore<T extends { Tick: number }>(arr: T[], tick: number): T | undefined {
+    let found: T | undefined;
+    for (const e of arr) {
+      if (e.Tick < tick) {
+        if (!found || e.Tick > found.Tick) found = e;
+      }
+    }
+    return found;
+  }
+
   function addBpm() {
     const lvl = $activeLevel;
     if (!lvl) return;
+    const tick = spawnTick(lvl);
+    if (tick === lvl.InitBpm.Tick) {
+      alert(`Tick ${tick} is the init BPM row — edit it directly instead of adding a change.`);
+      return;
+    }
+    if (lvl.BpmChangeEvents.some((e) => e.Tick === tick)) {
+      alert(`A BPM change already exists at tick ${tick}.`);
+      return;
+    }
     pushHistory();
-    const last = lvl.BpmChangeEvents.at(-1);
-    const newEv: BpmEvent = {
-      Tick: bumpTick(lvl.InitBpm.Tick, last?.Tick ?? lvl.InitBpm.Tick),
-      Bpm: last?.Bpm ?? lvl.InitBpm.Bpm,
-    };
+    const active = lastBefore(lvl.BpmChangeEvents, tick) ?? lvl.InitBpm;
+    const newEv: BpmEvent = { Tick: tick, Bpm: active.Bpm };
     patchActiveLevel({ BpmChangeEvents: [...lvl.BpmChangeEvents, newEv].sort((a, b) => a.Tick - b.Tick) });
   }
   function addTs() {
     const lvl = $activeLevel;
     if (!lvl) return;
+    const tick = spawnTick(lvl);
+    if (tick === lvl.InitTimeSignature.Tick) {
+      alert(`Tick ${tick} is the init time signature row — edit it directly instead of adding a change.`);
+      return;
+    }
+    if (lvl.TimeSignature.some((e) => e.Tick === tick)) {
+      alert(`A TS change already exists at tick ${tick}.`);
+      return;
+    }
     pushHistory();
-    const last = lvl.TimeSignature.at(-1);
+    const active = lastBefore(lvl.TimeSignature, tick) ?? lvl.InitTimeSignature;
     const newEv: TimeSignatureEvent = {
-      Tick: bumpTick(lvl.InitTimeSignature.Tick, last?.Tick ?? lvl.InitTimeSignature.Tick),
-      Numerator: last?.Numerator ?? lvl.InitTimeSignature.Numerator,
-      Denominator: last?.Denominator ?? lvl.InitTimeSignature.Denominator,
+      Tick: tick,
+      Numerator: active.Numerator,
+      Denominator: active.Denominator,
     };
     patchActiveLevel({ TimeSignature: [...lvl.TimeSignature, newEv].sort((a, b) => a.Tick - b.Tick) });
   }
   function addPhase() {
     const lvl = $activeLevel;
     if (!lvl) return;
+    const tick = spawnTick(lvl);
+    if (lvl.PhaseChangeEvents.some((e) => e.Tick === tick)) {
+      alert(`A Phase change already exists at tick ${tick}.`);
+      return;
+    }
     pushHistory();
-    const last = lvl.PhaseChangeEvents.at(-1);
-    const newEv: PhaseEvent = { Tick: (last?.Tick ?? 0) + 480 };
+    const newEv: PhaseEvent = { Tick: tick };
     patchActiveLevel({ PhaseChangeEvents: [...lvl.PhaseChangeEvents, newEv].sort((a, b) => a.Tick - b.Tick) });
   }
 

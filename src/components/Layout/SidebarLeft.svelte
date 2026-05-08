@@ -23,7 +23,7 @@
   .left {
     display: flex;
     flex-direction: column;
-    width: 320px;
+    width: 360px;
     border-right: var(--hairline);
     background: var(--bg-1);
     overflow-y: auto;
