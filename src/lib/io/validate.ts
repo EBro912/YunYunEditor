@@ -129,11 +129,19 @@ export function validateForExport(
     }
   }
 
+  const seenSlots = new Map<number, string>();
   for (const [path, lvl] of levels) {
-    if (
-      typeof lvl.Level === 'number' &&
-      !(SUPPORTED_LEVELS as readonly number[]).includes(lvl.Level)
-    ) {
+    if (typeof lvl.Level !== 'number') continue;
+    const prior = seenSlots.get(lvl.Level);
+    if (prior) {
+      issues.push({
+        severity: 'error',
+        message: `${path}: Level slot ${lvl.Level} duplicates "${prior}" — only one level per slot loads in-game`,
+      });
+    } else {
+      seenSlots.set(lvl.Level, path);
+    }
+    if (!(SUPPORTED_LEVELS as readonly number[]).includes(lvl.Level)) {
       issues.push({
         severity: 'warning',
         message: `${path}: Level ${lvl.Level} is outside the slots the game currently surfaces (${SUPPORTED_LEVELS.join(', ')}) — the file will load but won't appear in-game`,

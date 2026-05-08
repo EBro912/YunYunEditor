@@ -15,6 +15,16 @@
 
   const changelog: ChangelogEntry[] = [
     {
+      version: '0.2.2',
+      changes: [
+        'Added dropdowns for selecting a level. If a level slot is already taken, a swap prompt will appear.',
+        'Events now spawn relative to the current scroll position rather than the next valid TPQN from zero ticks.',
+        'Fixed levels being able to go above five.',
+        'Fixed levels being able to have the same level number.',
+        'Improved visibilty of the level add section being disabled when level slots are full.',
+      ],
+    },
+    {
       version: '0.2.1',
       changes: [
         'Added copy / paste for selected notes (Ctrl+C / Ctrl+V). Pasted notes anchor to the playhead and preserve relative timing.',

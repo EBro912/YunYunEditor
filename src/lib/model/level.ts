@@ -38,11 +38,11 @@ export interface LevelJson {
   RushNotes: RushNote[];
 }
 
-export function emptyLevel(musicInfoName: string, difficulty: number, musicPath: string): LevelJson {
+export function emptyLevel(musicInfoName: string, level: number, musicPath: string): LevelJson {
   return {
     Version: 1,
     MusicInfoName: musicInfoName,
-    Level: difficulty,
+    Level: level,
     MusicPath: musicPath,
     ScoreOffset: 0,
     InitBpm: { Tick: 0, Bpm: 120 },

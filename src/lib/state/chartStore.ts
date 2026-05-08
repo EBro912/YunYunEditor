@@ -2,7 +2,7 @@ import { writable, derived, get, type Readable } from 'svelte/store';
 import type { SongJson } from '../model/song';
 import { emptySong } from '../model/song';
 import type { LevelJson } from '../model/level';
-import { emptyLevel } from '../model/level';
+import { emptyLevel, SUPPORTED_LEVELS } from '../model/level';
 import { newId } from '../model/notes';
 import { clearSelection } from './editorStore';
 import type { ImportedMod } from '../io/import';
@@ -99,13 +99,16 @@ export function updateSong(patch: Partial<SongJson>): void {
   bump();
 }
 
-export function addLevel(editor: string, difficulty: number): void {
+// Returns false if `level` is already in use by another chart in this song. Caller is responsible
+// for surfacing the rejection (the slot guard exists because the loader keys charts by Level slot).
+export function addLevel(editor: string, level: number, difficulty: number): boolean {
   const c = get(chart);
+  if (c.song.Levels.some((r) => c.levels[r.Path]?.Level === level)) return false;
   const id = newId().slice(0, 6);
   const path = `level_${id}.json`;
   // No fallback strings — an empty song.ID/Audio must produce an empty MusicInfoName/MusicPath
   // so the level stays consistent with the song. Export validation already blocks empty fields.
-  const lvl = emptyLevel(c.song.ID, difficulty, audioToMusicPath(c.song.Audio));
+  const lvl = emptyLevel(c.song.ID, level, audioToMusicPath(c.song.Audio));
   chart.update((s) => ({
     ...s,
     song: {
@@ -116,6 +119,7 @@ export function addLevel(editor: string, difficulty: number): void {
     activeLevelPath: path,
   }));
   bump();
+  return true;
 }
 
 export function removeLevelRefAt(idx: number): void {
@@ -140,10 +144,19 @@ export function removeLevelRefAt(idx: number): void {
   bump();
 }
 
-export function duplicateLevelRefAt(idx: number): void {
+// Returns false when no SUPPORTED_LEVELS slot is free; the source slot would otherwise collide.
+// Caller surfaces a message; we don't alert from the store.
+export function duplicateLevelRefAt(idx: number): boolean {
   const c = get(chart);
   const src = c.song.Levels[idx];
-  if (!src) return;
+  if (!src) return false;
+  const usedSlots = new Set(
+    Object.values(c.levels)
+      .map((l) => l.Level)
+      .filter((v): v is number => typeof v === 'number'),
+  );
+  const freeSlot = (SUPPORTED_LEVELS as readonly number[]).find((v) => !usedSlots.has(v));
+  if (freeSlot === undefined) return false;
   // Clone level data into a new Path so subsequent edits don't bleed into the source.
   const newPath = `level_${newId().slice(0, 6)}.json`;
   const srcLvl = c.levels[src.Path];
@@ -158,6 +171,7 @@ export function duplicateLevelRefAt(idx: number): void {
     for (const n of clone.HoldNotes) n.id = newId();
     for (const n of clone.ShiftNotes) n.id = newId();
     for (const n of clone.RushNotes) n.id = newId();
+    clone.Level = freeSlot;
   }
   chart.update((s) => ({
     ...s,
@@ -168,6 +182,7 @@ export function duplicateLevelRefAt(idx: number): void {
     levels: clone ? { ...s.levels, [newPath]: { ...clone, MusicInfoName: s.song.ID } } : s.levels,
   }));
   bump();
+  return true;
 }
 
 export function patchLevelRef(idx: number, patch: Partial<{ Editor: string; Difficulty: number }>): void {
@@ -178,6 +193,55 @@ export function patchLevelRef(idx: number, patch: Partial<{ Editor: string; Diff
     return { ...s, song: { ...s.song, Levels: refs } };
   });
   bump();
+}
+
+// Slot lives on LevelJson.Level (not SongLevelRef). Returns false on no-op or slot collision.
+export function setLevelSlotAt(idx: number, level: number): boolean {
+  const c = get(chart);
+  const ref = c.song.Levels[idx];
+  if (!ref) return false;
+  const cur = c.levels[ref.Path];
+  if (!cur || cur.Level === level) return false;
+  if (Object.entries(c.levels).some(([p, l]) => p !== ref.Path && l.Level === level)) return false;
+  chart.update((s) => {
+    const lvl = s.levels[ref.Path];
+    if (!lvl) return s;
+    return { ...s, levels: { ...s.levels, [ref.Path]: { ...lvl, Level: level } } };
+  });
+  bump();
+  return true;
+}
+
+// Swap the Level slot of the chart at `idx` with whichever other chart currently holds `newLevel`.
+// Returns false if there's no other chart at `newLevel` (in which case the caller should use
+// setLevelSlotAt instead) or the index/data is missing.
+export function swapLevelSlotAt(idx: number, newLevel: number): boolean {
+  const c = get(chart);
+  const ref = c.song.Levels[idx];
+  if (!ref) return false;
+  const cur = c.levels[ref.Path];
+  if (!cur || cur.Level === newLevel) return false;
+  const otherEntry = Object.entries(c.levels).find(
+    ([p, l]) => p !== ref.Path && l.Level === newLevel,
+  );
+  if (!otherEntry) return false;
+  const [otherPath] = otherEntry;
+  const oldLevel = cur.Level;
+  chart.update((s) => {
+    const a = s.levels[ref.Path];
+    const b = s.levels[otherPath];
+    if (!a || !b) return s;
+    return {
+      ...s,
+      levels: {
+        ...s.levels,
+        [ref.Path]: { ...a, Level: newLevel },
+        [otherPath]: { ...b, Level: oldLevel },
+      },
+    };
+  });
+  bump();
+  return true;
 }
 
 // Atomic Path rename: a free-form Path patch would leave `levels` keyed by the old path,
