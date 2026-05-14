@@ -32,19 +32,33 @@
   }
 
   // After resnapping, notes that previously sat at different ticks may collapse to the same tick.
-  // When preventDuplicates is on, drop the redundant copies (keep first occurrence at each
-  // (Tick, Lane)). Cross-kind collisions are also dropped so a hold+single can't share a slot.
-  function dedupePositions(lvl: LevelJson): LevelJson {
+  // When preventDuplicates is on, drop the redundant copies. `movable` flags which notes were
+  // actually snapped: only those are eligible to be dropped — unmovable notes are seeded into the
+  // occupied set first so a "resnap selected" action can never silently delete unselected notes.
+  function dedupePositions(lvl: LevelJson, movable: (id: string | undefined) => boolean): LevelJson {
     const seen = new Set<string>();
     const key = (t: number, l: number) => `${t}/${l}`;
-    const keepSimple = <T extends { Tick: number; Lane: number }>(n: T): boolean => {
+    const occupySimple = (n: { Tick: number; Lane: number }) => {
+      seen.add(key(n.Tick, n.Lane));
+    };
+    // Rush occupies (Lane, Lane+1) — register both slots so a later single/hold can't sneak in.
+    const occupyRush = (n: { Tick: number; Lane: number }) => {
+      seen.add(key(n.Tick, n.Lane));
+      seen.add(key(n.Tick, n.Lane + 1));
+    };
+    for (const n of lvl.SingleNotes) if (!movable(n.id)) occupySimple(n);
+    for (const n of lvl.HoldNotes) if (!movable(n.id)) occupySimple(n);
+    for (const n of lvl.RushNotes) if (!movable(n.id)) occupyRush(n);
+
+    const keepSimple = <T extends { id?: string; Tick: number; Lane: number }>(n: T): boolean => {
+      if (!movable(n.id)) return true;
       const k = key(n.Tick, n.Lane);
       if (seen.has(k)) return false;
       seen.add(k);
       return true;
     };
-    // Rush occupies (Lane, Lane+1) — register both slots so a later single/hold can't sneak in.
-    const keepRush = (n: { Tick: number; Lane: number }): boolean => {
+    const keepRush = (n: { id?: string; Tick: number; Lane: number }): boolean => {
+      if (!movable(n.id)) return true;
       const k1 = key(n.Tick, n.Lane);
       const k2 = key(n.Tick, n.Lane + 1);
       if (seen.has(k1) || seen.has(k2)) return false;
@@ -71,7 +85,7 @@
       HoldNotes: apply(lvl.HoldNotes) as HoldNote[],
       RushNotes: apply(lvl.RushNotes) as RushNote[],
     };
-    return $editor.preventDuplicates ? dedupePositions(snapped) : snapped;
+    return $editor.preventDuplicates ? dedupePositions(snapped, predicate) : snapped;
   }
 
   function resnapSelected() {

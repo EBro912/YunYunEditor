@@ -282,18 +282,24 @@
       const lane = drag.lane;
       const toolKind = drag.toolKind;
       const wantMirror = $editor.mirrorPlacement;
-      // For rush (which spans Lane and Lane+1), mirror so the pair still covers two adjacent
-      // lanes — anchor on Lane+1 then call mirrorLane and subtract 1 to get the new left lane.
+      // For rush (which spans Lane and Lane+1), mirror the right end of the pair: since mirrorLane
+      // is monotonically decreasing, the mirrored right end is the new left lane of the pair.
       const mirrorL = wantMirror
         ? toolKind === 'rush'
-          ? mirrorLane(lane + 1) - 1
+          ? mirrorLane(lane + 1)
           : mirrorLane(lane)
         : null;
       const blockDup = $editor.preventDuplicates;
       const state = buildState();
-      const primaryBlocked = blockDup && state ? hasNoteAt(state.level, tickFrom, lane) : false;
-      const mirrorBlocked =
-        mirrorL != null && blockDup && state ? hasNoteAt(state.level, tickFrom, mirrorL) : false;
+      // Rush occupies (Lane, Lane+1), so probe both slots when checking for collisions.
+      const placementBlocked = (l: number): boolean => {
+        if (!blockDup || !state) return false;
+        if (hasNoteAt(state.level, tickFrom, l)) return true;
+        if (toolKind === 'rush' && hasNoteAt(state.level, tickFrom, l + 1)) return true;
+        return false;
+      };
+      const primaryBlocked = placementBlocked(lane);
+      const mirrorBlocked = mirrorL != null && placementBlocked(mirrorL);
       if (primaryBlocked && (mirrorL == null || mirrorBlocked)) {
         drag = null;
         return;
