@@ -5,8 +5,9 @@
     onImportAudio?: () => void;
     onExport?: () => void;
     onAbout?: () => void;
+    onKeybinds?: () => void;
   }
-  const { onNew, onImport, onImportAudio, onExport, onAbout }: Props = $props();
+  const { onNew, onImport, onImportAudio, onExport, onAbout, onKeybinds }: Props = $props();
 </script>
 
 {#snippet githubIcon()}
@@ -32,6 +33,15 @@
     <button onclick={() => onExport?.()}>Export</button>
   </div>
   <div class="group right">
+    <button class="about-btn" onclick={() => onKeybinds?.()} title="Show keybinds (?)">
+      <svg class="info-icon" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+        <path
+          fill="currentColor"
+          d="M2 4.5A2.5 2.5 0 0 1 4.5 2h7A2.5 2.5 0 0 1 14 4.5v7a2.5 2.5 0 0 1-2.5 2.5h-7A2.5 2.5 0 0 1 2 11.5v-7zm2.5-1A1 1 0 0 0 3.5 4.5v7a1 1 0 0 0 1 1h7a1 1 0 0 0 1-1v-7a1 1 0 0 0-1-1h-7zM5 6h1.5v1.5H5V6zm2.25 0h1.5v1.5h-1.5V6zM9.5 6H11v1.5H9.5V6zM5 8.25h1.5v1.5H5v-1.5zm2.25 0h1.5v1.5h-1.5v-1.5zM9.5 8.25H11v1.5H9.5v-1.5zM5 10.5h6V12H5v-1.5z"
+        />
+      </svg>
+      <span>Keybinds</span>
+    </button>
     <button class="about-btn" onclick={() => onAbout?.()} title="About YunYunEditor">
       <svg class="info-icon" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
         <path

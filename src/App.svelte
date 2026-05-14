@@ -9,9 +9,11 @@
   import ImportDrop from './components/Modals/ImportDrop.svelte';
   import ExportDialog from './components/Modals/ExportDialog.svelte';
   import AboutDialog from './components/Modals/AboutDialog.svelte';
+  import KeybindsDialog from './components/Modals/KeybindsDialog.svelte';
 
   import { chart, activeLevel, dirtyTick, loadFromImport, setChart, mutateActiveLevel } from './lib/state/chartStore';
-  import { editor, setPlayhead, setTool, setSnap, setSnapDivision, clearSelection } from './lib/state/editorStore';
+  import { editor, setPlayhead, setTool, setSnapDivision, clearSelection } from './lib/state/editorStore';
+  import { get } from 'svelte/store';
   import { undo, redo, pushHistory, clearHistory } from './lib/state/history';
   import { copySelection, pasteAtPlayhead } from './lib/state/clipboard';
   import { readCurrent, CURRENT_ID, reassignNoteIds } from './lib/storage/drafts';
@@ -21,11 +23,13 @@
   import type { ImportedMod } from './lib/io/import';
   import { transport } from './lib/audio/engine';
   import { buildTempoMap, secondsToTick, tickToSeconds } from './lib/timing/ticks';
-  import { SNAP_DIVISIONS, type SnapDivision } from './lib/timing/snap';
-  import type { HoldNote, RushNote, SingleNote } from './lib/model/notes';
+  import { SNAP_DIVISIONS, snapTick, type SnapDivision } from './lib/timing/snap';
+  import { mirrorLane, newId, type HoldNote, type RushNote, type SingleNote } from './lib/model/notes';
+  import type { LevelJson } from './lib/model/level';
 
   let exportOpen = $state(false);
   let aboutOpen = $state(false);
+  let keybindsOpen = $state(false);
   let importer: ImportDrop | null = $state(null);
   let centerEl: HTMLElement | null = $state(null);
   let centerHeight = $state(0);
@@ -71,6 +75,9 @@
 
   onMount(async () => {
     setupBeforeUnloadFlush();
+    // Persisted playback rate lives on editorStore (restored from localStorage at module load).
+    // Push it into the transport so the first play() picks it up.
+    transport.setPlaybackRate(get(editor).playbackRate);
     raf = requestAnimationFrame(tick);
     if (centerEl) {
       centerHeight = centerEl.getBoundingClientRect().height;
@@ -295,7 +302,12 @@
     if (e.key === '3') { setTool('rush'); return; }
     if (e.key === '4') { setTool('eraser'); return; }
     if (e.key.toLowerCase() === 'v') { setTool('select'); return; }
-    if (e.key.toLowerCase() === 's') { setSnap(!$editor.snapEnabled); return; }
+    // SDKL → lanes 2..5 at the playhead. Matches in-game keybinds. S replaces the previous
+    // snap-toggle hotkey since the snap checkbox in the transport bar covers that intent.
+    if (e.key.toLowerCase() === 's') { e.preventDefault(); placeSingleAtPlayhead(2); return; }
+    if (e.key.toLowerCase() === 'd') { e.preventDefault(); placeSingleAtPlayhead(3); return; }
+    if (e.key.toLowerCase() === 'k') { e.preventDefault(); placeSingleAtPlayhead(4); return; }
+    if (e.key.toLowerCase() === 'l') { e.preventDefault(); placeSingleAtPlayhead(5); return; }
     if (e.key === '[' || e.key === ']') {
       const dir = e.key === '[' ? -1 : 1;
       const arr = SNAP_LIST;
@@ -308,10 +320,43 @@
     if (e.key === '.') { nudgeSelectionByBeatFraction(1, snapDenom($editor.snapDivision), +1); return; }
     if (e.key === '<') { nudgeSelectionByBeatFraction(1, 4, -1); return; }
     if (e.key === '>') { nudgeSelectionByBeatFraction(1, 4, +1); return; }
+    if (e.key === '?') { e.preventDefault(); keybindsOpen = true; return; }
   }
 
   function snapDenom(d: SnapDivision): number {
     return Math.round(480 / SNAP_DIVISIONS[d]);
+  }
+
+  function hasNoteAt(lvl: LevelJson, tick: number, lane: number): boolean {
+    if (lvl.SingleNotes.some((n) => n.Tick === tick && n.Lane === lane)) return true;
+    if (lvl.HoldNotes.some((n) => n.Tick === tick && n.Lane === lane)) return true;
+    if (lvl.RushNotes.some((n) => n.Tick === tick && (n.Lane === lane || n.Lane + 1 === lane))) return true;
+    return false;
+  }
+
+  // SDKL key handler: drop a single note at the current playhead tick in the given lane. Snaps
+  // when snap is enabled, respects preventDuplicates, mirrors when mirrorPlacement is on. Matches
+  // in-game keybinds so muscle memory carries over for chart authors.
+  function placeSingleAtPlayhead(lane: number) {
+    const lvl = $activeLevel;
+    if (!lvl) return;
+    const tick = $editor.snapEnabled
+      ? Math.max(0, snapTick($editor.playheadTick, lvl.InitTimeSignature, lvl.TimeSignature, $editor.snapDivision))
+      : Math.max(0, $editor.playheadTick);
+    const mirror = $editor.mirrorPlacement ? mirrorLane(lane) : null;
+    const blockDup = $editor.preventDuplicates;
+    const primaryBlocked = blockDup && hasNoteAt(lvl, tick, lane);
+    const mirrorBlocked = mirror != null && blockDup && hasNoteAt(lvl, tick, mirror);
+    if (primaryBlocked && (mirror == null || mirrorBlocked)) return;
+    pushHistory();
+    mutateActiveLevel((l) => {
+      const adds: SingleNote[] = [];
+      if (!primaryBlocked) adds.push({ id: newId(), Tick: tick, Lane: lane, Type: 0 } as SingleNote);
+      if (mirror != null && !mirrorBlocked && mirror !== lane) {
+        adds.push({ id: newId(), Tick: tick, Lane: mirror, Type: 0 } as SingleNote);
+      }
+      return { ...l, SingleNotes: [...l.SingleNotes, ...adds] };
+    });
   }
 </script>
 
@@ -324,6 +369,7 @@
     onImportAudio={() => importer?.pickAudio()}
     onExport={() => (exportOpen = true)}
     onAbout={() => (aboutOpen = true)}
+    onKeybinds={() => (keybindsOpen = true)}
   />
 
   <div class="body">
@@ -355,6 +401,7 @@
 <ImportDrop bind:this={importer} />
 <ExportDialog open={exportOpen} onClose={() => (exportOpen = false)} />
 <AboutDialog open={aboutOpen} onClose={() => (aboutOpen = false)} />
+<KeybindsDialog open={keybindsOpen} onClose={() => (keybindsOpen = false)} />
 
 <style>
   .app {

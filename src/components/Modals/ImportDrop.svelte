@@ -1,11 +1,13 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
+  import { get } from 'svelte/store';
   import { parseZip } from '../../lib/io/import';
-  import { loadFromImport, updateSong } from '../../lib/state/chartStore';
+  import { chart, loadFromImport, updateSong, addLevel } from '../../lib/state/chartStore';
   import { putAudio } from '../../lib/storage/audioStore';
   import { CURRENT_ID } from '../../lib/storage/drafts';
   import { isOggFilename, checkOggSize } from '../../lib/audio/decode';
   import { clearHistory } from '../../lib/state/history';
+  import { SUPPORTED_LEVELS } from '../../lib/model/level';
 
   let dragOver = $state(false);
   // dragenter/dragleave bubble for every nested element transition; track depth so the overlay
@@ -53,6 +55,13 @@
       await putAudio({ id: CURRENT_ID, filename: file.name, mime: file.type || 'audio/ogg', bytes });
       // Update song.Audio so export uses the new filename. This also bumps dirtyTick → App reloads transport.
       updateSong({ Audio: file.name });
+      // If the project has zero levels (e.g., a brand-new chart with no .zip yet), bootstrap one
+      // so the user has somewhere to place notes immediately. The Add Level button is small and
+      // users have asked what to do first; pairing audio drop with auto-create answers that.
+      const c = get(chart);
+      if (Object.keys(c.levels).length === 0) {
+        addLevel('Editor', SUPPORTED_LEVELS[0], 1);
+      }
       // The old IDB audio bytes are gone; an undo of updateSong would restore song.Audio
       // pointing at audio that no longer exists in storage.
       clearHistory();

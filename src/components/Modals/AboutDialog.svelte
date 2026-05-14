@@ -15,6 +15,23 @@
 
   const changelog: ChangelogEntry[] = [
     {
+      version: '0.3.0',
+      changes: [
+        'Added an Options panel with toggles for preventing duplicate notes, locking notes, mirroring placement, and note snapping.',
+        'Moved the ScoreOffset section to the new Options panel with a new \'ms\' button to display the ScoreOffset in milliseconds.',
+        'Added a playback speed slider.',
+        'Added S/D/K/L keybinds to place a single note in each respective lane at the playhead.',
+        'Added a keybinds dialog accessible from the toolbar or the ? key.',
+        'A level will now be auto-created when an .ogg is dropped into a fresh project.',
+        'Added a confirmation prompt for deleting levels (can still be undone with Ctrl+Z).',
+        'Added collapsible panel headers on both sidebars.',
+        'Zoom now displays as a percentage with direct numeric input.',
+        'Inverted the scrollbar to match the playfield direction.',
+        'Fixed 1/16th Hold and Rush note tails not ending exactly on the beat grid.',
+        'Fixed notes drifting off the snap grid when dragged.',
+      ],
+    },
+    {
       version: '0.2.2',
       changes: [
         'Added dropdowns for selecting a level. If a level slot is already taken, a swap prompt will appear.',

@@ -19,6 +19,9 @@ class Transport {
   private playStartCtxTime = 0;
   private playStartSongSeconds = 0;
   private playing = false;
+  // Playback rate (1.0 = normal). Applied to AudioBufferSourceNode.playbackRate. Pitches the
+  // audio at non-1.0 rates (no time-stretching), matching osu!-style chart editor convention.
+  private rate = 1;
   // Monotonic load token. Each load() call claims a fresh value; if a slower decode resolves
   // after a newer load has been issued, we ignore the stale buffer instead of installing it.
   private loadToken = 0;
@@ -41,6 +44,25 @@ class Transport {
 
   getVolume(): number {
     return this.volume;
+  }
+
+  // Rebase the song-time epoch with the OLD rate before swapping, so a mid-playback rate change
+  // doesn't retroactively reinterpret elapsed time at the new rate. The source's playbackRate is
+  // an AudioParam and updates seamlessly on a live node.
+  setPlaybackRate(rate: number): void {
+    const clamped = Math.max(0.25, Math.min(2.0, rate));
+    if (clamped === this.rate) return;
+    if (this.playing && this.ctx) {
+      const now = this.ctx.currentTime;
+      this.playStartSongSeconds = this.playStartSongSeconds + (now - this.playStartCtxTime) * this.rate;
+      this.playStartCtxTime = now;
+    }
+    this.rate = clamped;
+    if (this.source) this.source.playbackRate.value = clamped;
+  }
+
+  getPlaybackRate(): number {
+    return this.rate;
   }
 
   async load(bytes: ArrayBuffer): Promise<void> {
@@ -88,6 +110,7 @@ class Transport {
     }
     const src = this.ctx.createBufferSource();
     src.buffer = this.buffer;
+    src.playbackRate.value = this.rate;
     src.connect(this.gain ?? this.ctx.destination);
     const startSec = clamp(this.playStartSongSeconds, 0, this.buffer.duration);
     this.playStartCtxTime = this.ctx.currentTime;
@@ -121,7 +144,7 @@ class Transport {
   songSeconds(): number {
     if (!this.ctx || !this.buffer) return this.playStartSongSeconds;
     if (!this.playing) return this.playStartSongSeconds;
-    return this.playStartSongSeconds + (this.ctx.currentTime - this.playStartCtxTime);
+    return this.playStartSongSeconds + (this.ctx.currentTime - this.playStartCtxTime) * this.rate;
   }
 
   isPlaying(): boolean {
