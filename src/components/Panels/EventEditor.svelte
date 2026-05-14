@@ -161,11 +161,6 @@
     patchActiveLevel({ PhaseChangeEvents: lvl.PhaseChangeEvents.filter((_, i) => i !== idx) });
   }
 
-  function patchScoreOffset(v: number) {
-    const lvl = $activeLevel;
-    if (!lvl) return;
-    patchActiveLevel({ ScoreOffset: v });
-  }
 </script>
 
 {#if !$activeLevel}
@@ -176,21 +171,6 @@
     <button class:active={tab === 'bpm'} onclick={() => (tab = 'bpm')}>BPM</button>
     <button class:active={tab === 'ts'} onclick={() => (tab = 'ts')}>Time Sig</button>
     <button class:active={tab === 'phase'} onclick={() => (tab = 'phase')}>Phase</button>
-  </div>
-
-  <div class="offset">
-    <label>
-      <span>ScoreOffset (s)</span>
-      <input
-        type="number"
-        step="0.001"
-        value={lvl.ScoreOffset}
-        onfocus={() => pushHistory()}
-        oninput={(e) => patchScoreOffset(Number((e.currentTarget as HTMLInputElement).value))}
-      />
-      <button class="mini" onclick={() => { pushHistory(); patchScoreOffset((lvl.ScoreOffset ?? 0) - 0.001); }} title="−1ms">−</button>
-      <button class="mini" onclick={() => { pushHistory(); patchScoreOffset((lvl.ScoreOffset ?? 0) + 0.001); }} title="+1ms">+</button>
-    </label>
   </div>
 
   {#if tab === 'bpm'}
@@ -349,25 +329,6 @@
     background: var(--bg-3);
     color: var(--fg);
     border-color: var(--accent);
-  }
-  .offset {
-    margin-bottom: var(--sp-2);
-  }
-  .offset label {
-    display: grid;
-    grid-template-columns: 1fr 80px auto auto;
-    gap: 4px;
-    align-items: center;
-    font-size: 11px;
-    color: var(--fg-dim);
-  }
-  .offset input {
-    background: var(--bg-2);
-    border: var(--hairline);
-    color: var(--fg);
-    padding: 2px 4px;
-    border-radius: 2px;
-    font-family: var(--font-mono);
   }
   .ev {
     width: 100%;

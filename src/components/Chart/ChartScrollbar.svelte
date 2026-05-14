@@ -13,8 +13,9 @@
 
   let trackEl: HTMLDivElement;
 
-  // The track represents the full song (top = 0:00, bottom = duration).
-  // Thumb height reflects what fraction of the song is visible at the current zoom.
+  // The track represents the full song matched to the playfield direction: future is up. So
+  // the bottom of the track = 0:00 (song start) and the top = duration (song end). This way the
+  // thumb visually travels upward as time advances, mirroring notes rising up the playfield.
   const safeDuration = $derived(durationSec > 0 ? durationSec : 0);
   const visibleSec = $derived(pixelsPerSecond > 0 ? canvasHeight / pixelsPerSecond : 0);
   const trackHeight = $derived(Math.max(0, canvasHeight - BTN_HEIGHT * 2));
@@ -25,7 +26,7 @@
   );
   const thumbTop = $derived(
     safeDuration > 0
-      ? Math.max(0, Math.min(trackHeight - thumbHeight, (currentSec / safeDuration) * (trackHeight - thumbHeight)))
+      ? Math.max(0, Math.min(trackHeight - thumbHeight, (1 - currentSec / safeDuration) * (trackHeight - thumbHeight)))
       : 0,
   );
 
@@ -39,7 +40,8 @@
   function secFromTrackY(trackY: number): number {
     const usable = Math.max(1, trackHeight - thumbHeight);
     const norm = clamp(trackY / usable, 0, 1);
-    return norm * safeDuration;
+    // Track is inverted: top = end of song, bottom = start. Map screen Y → time accordingly.
+    return (1 - norm) * safeDuration;
   }
 
   function onThumbMouseDown(e: MouseEvent) {
@@ -91,10 +93,10 @@
 <div class="scrollbar" class:disabled style="height: {canvasHeight}px;">
   <button
     class="jump"
-    onclick={jumpStart}
+    onclick={jumpEnd}
     disabled={disabled}
-    title="Jump to start (Home)"
-    aria-label="Jump to start"
+    title="Jump to end (End)"
+    aria-label="Jump to end"
   >⏶</button>
   <div
     class="track"
@@ -119,10 +121,10 @@
   </div>
   <button
     class="jump"
-    onclick={jumpEnd}
+    onclick={jumpStart}
     disabled={disabled}
-    title="Jump to end (End)"
-    aria-label="Jump to end"
+    title="Jump to start (Home)"
+    aria-label="Jump to start"
   >⏷</button>
 </div>
 

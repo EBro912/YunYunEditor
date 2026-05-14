@@ -162,7 +162,11 @@
           }}
           title="duplicate"
         >⧉</button>
-        <button class="mini" onclick={() => { pushHistory(); removeLevelRefAt(i); }} title="remove">✕</button>
+        <button class="mini" onclick={() => {
+          if (!confirm(`Delete level "${ref.Path}"?\n\n(Can be undone with Ctrl+Z)`)) return;
+          pushHistory();
+          removeLevelRefAt(i);
+        }} title="remove">✕</button>
       </div>
     </li>
   {/each}

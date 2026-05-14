@@ -1,10 +1,11 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
-  import { activeLevel, mutateActiveLevel } from '../../lib/state/chartStore';
+  import { chart, activeLevel, mutateActiveLevel } from '../../lib/state/chartStore';
   import { editor, setPlayhead, setZoom, selectOnly, selectToggle, clearSelection } from '../../lib/state/editorStore';
   import { buildTempoMap, tickToSeconds, secondsToTick } from '../../lib/timing/ticks';
   import { snapTick } from '../../lib/timing/snap';
-  import { LANE_RANGE, newId, type SingleNote, type HoldNote, type RushNote } from '../../lib/model/notes';
+  import { LANE_RANGE, newId, mirrorLane, type SingleNote, type HoldNote, type RushNote } from '../../lib/model/notes';
+  import type { LevelJson } from '../../lib/model/level';
   import { pushHistory } from '../../lib/state/history';
   import { transport } from '../../lib/audio/engine';
   import { draw, hitTest, pickCell, tickToY, laneToX, type Viewport, type DrawState } from './NoteRenderer';
@@ -182,16 +183,20 @@
       if (hit && hit.id) {
         if (e.shiftKey) selectToggle(hit.id);
         else selectOnly(hit.id);
-        // Begin a move drag.
+        // lockNotes lets the user click to select without accidentally starting a move drag.
+        if ($editor.lockNotes) return;
+        // Begin a move drag. Snap startCellTick so the delta (currentTick - startCellTick) stays
+        // a multiple of the snap step — otherwise an on-grid note can drift off the grid mid-drag.
         const { lane, tick } = pickCell(x, y, vp, state);
+        const startTick = snapToCurrent(tick);
         const ids = new Set<string>($editor.selection);
         if (hit.id) ids.add(hit.id);
         drag = {
           kind: 'move',
           ids,
-          startCellTick: tick,
+          startCellTick: startTick,
           startCellLane: lane,
-          currentTick: tick,
+          currentTick: startTick,
           currentLane: lane,
         };
         return;
@@ -206,11 +211,7 @@
     const cell = pickCell(x, y, vp, state);
     const tick = clampTick(snapToCurrent(cell.tick), state);
     if (tool === 'single') {
-      pushHistory();
-      mutateActiveLevel((lvl) => ({
-        ...lvl,
-        SingleNotes: [...lvl.SingleNotes, { id: newId(), Tick: tick, Lane: cell.lane, Type: 0 } as SingleNote],
-      }));
+      placeSingle(tick, cell.lane);
       return;
     }
     if (tool === 'hold') {
@@ -223,6 +224,35 @@
       drag = { kind: 'place', toolKind: 'rush', lane, startTick: tick, currentTick: tick };
       return;
     }
+  }
+
+  // Returns true if any existing note in the active level occupies (tick, lane). Rush notes occupy
+  // two adjacent lanes (Lane, Lane+1), so their collision footprint is wider than their stored Lane.
+  function hasNoteAt(lvl: LevelJson, tick: number, lane: number): boolean {
+    if (lvl.SingleNotes.some((n) => n.Tick === tick && n.Lane === lane)) return true;
+    if (lvl.HoldNotes.some((n) => n.Tick === tick && n.Lane === lane)) return true;
+    if (lvl.RushNotes.some((n) => n.Tick === tick && (n.Lane === lane || n.Lane + 1 === lane))) return true;
+    return false;
+  }
+
+  function placeSingle(tick: number, lane: number) {
+    const state = buildState();
+    if (!state) return;
+    const wantMirror = $editor.mirrorPlacement;
+    const mirror = wantMirror ? mirrorLane(lane) : null;
+    const blockDup = $editor.preventDuplicates;
+    const primaryBlocked = blockDup && hasNoteAt(state.level, tick, lane);
+    const mirrorBlocked = mirror != null && blockDup && hasNoteAt(state.level, tick, mirror);
+    if (primaryBlocked && (mirror == null || mirrorBlocked)) return;
+    pushHistory();
+    mutateActiveLevel((lvl) => {
+      const toAdd: SingleNote[] = [];
+      if (!primaryBlocked) toAdd.push({ id: newId(), Tick: tick, Lane: lane, Type: 0 } as SingleNote);
+      if (mirror != null && !mirrorBlocked && mirror !== lane) {
+        toAdd.push({ id: newId(), Tick: tick, Lane: mirror, Type: 0 } as SingleNote);
+      }
+      return { ...lvl, SingleNotes: [...lvl.SingleNotes, ...toAdd] };
+    });
   }
 
   function onMouseMove(e: MouseEvent) {
@@ -249,23 +279,44 @@
       const tickFrom = Math.min(drag.startTick, drag.currentTick);
       const tickTo = Math.max(drag.startTick, drag.currentTick);
       const duration = Math.max(60, tickTo - tickFrom);
+      const lane = drag.lane;
+      const toolKind = drag.toolKind;
+      const wantMirror = $editor.mirrorPlacement;
+      // For rush (which spans Lane and Lane+1), mirror so the pair still covers two adjacent
+      // lanes — anchor on Lane+1 then call mirrorLane and subtract 1 to get the new left lane.
+      const mirrorL = wantMirror
+        ? toolKind === 'rush'
+          ? mirrorLane(lane + 1) - 1
+          : mirrorLane(lane)
+        : null;
+      const blockDup = $editor.preventDuplicates;
+      const state = buildState();
+      const primaryBlocked = blockDup && state ? hasNoteAt(state.level, tickFrom, lane) : false;
+      const mirrorBlocked =
+        mirrorL != null && blockDup && state ? hasNoteAt(state.level, tickFrom, mirrorL) : false;
+      if (primaryBlocked && (mirrorL == null || mirrorBlocked)) {
+        drag = null;
+        return;
+      }
       pushHistory();
-      if (drag.toolKind === 'hold') {
-        mutateActiveLevel((lvl) => ({
-          ...lvl,
-          HoldNotes: [
-            ...lvl.HoldNotes,
-            { id: newId(), Tick: tickFrom, Lane: drag!.kind === 'place' ? drag!.lane : 0, Type: 0, Duration: duration } as HoldNote,
-          ],
-        }));
+      if (toolKind === 'hold') {
+        mutateActiveLevel((lvl) => {
+          const adds: HoldNote[] = [];
+          if (!primaryBlocked) adds.push({ id: newId(), Tick: tickFrom, Lane: lane, Type: 0, Duration: duration } as HoldNote);
+          if (mirrorL != null && !mirrorBlocked && mirrorL !== lane) {
+            adds.push({ id: newId(), Tick: tickFrom, Lane: mirrorL, Type: 0, Duration: duration } as HoldNote);
+          }
+          return { ...lvl, HoldNotes: [...lvl.HoldNotes, ...adds] };
+        });
       } else {
-        mutateActiveLevel((lvl) => ({
-          ...lvl,
-          RushNotes: [
-            ...lvl.RushNotes,
-            { id: newId(), Tick: tickFrom, Lane: drag!.kind === 'place' ? drag!.lane : 0, Type: 0, Duration: duration } as RushNote,
-          ],
-        }));
+        mutateActiveLevel((lvl) => {
+          const adds: RushNote[] = [];
+          if (!primaryBlocked) adds.push({ id: newId(), Tick: tickFrom, Lane: lane, Type: 0, Duration: duration } as RushNote);
+          if (mirrorL != null && !mirrorBlocked && mirrorL !== lane && mirrorL >= LANE_RANGE.min && mirrorL <= LANE_RANGE.max - 1) {
+            adds.push({ id: newId(), Tick: tickFrom, Lane: mirrorL, Type: 0, Duration: duration } as RushNote);
+          }
+          return { ...lvl, RushNotes: [...lvl.RushNotes, ...adds] };
+        });
       }
     } else if (drag.kind === 'move') {
       const dTick = drag.currentTick - drag.startCellTick;
@@ -310,7 +361,9 @@
     // Route through seekToTick so the audio transport seeks alongside the playhead — otherwise
     // currentSec / scrollbar stay frozen until playback resumes, and the playhead can drift past
     // the song's end where placement/seek would land out of bounds.
-    const beats = e.deltaY / 100;
+    // Scroll up advances time — matches the playfield (future is up the screen) and the
+    // bottom-anchored scrollbar (song start at bottom). Inverts the usual scroll convention.
+    const beats = -e.deltaY / 100;
     const tickDelta = Math.round(beats * 480);
     seekToTick($editor.playheadTick + tickDelta, state);
   }
@@ -353,7 +406,11 @@
   {#if !$activeLevel}
     <div class="empty-state">
       <p>No level loaded.</p>
-      <p class="dim">Click "Import .zip" or drop a .zip on the window.</p>
+      <p class="dim">Drop a <span class="kbd">.zip</span> mod or <span class="kbd">.ogg</span> audio file here to start.</p>
+    </div>
+  {:else if $activeLevel.SingleNotes.length === 0 && $activeLevel.HoldNotes.length === 0 && $activeLevel.RushNotes.length === 0 && !$chart.song.Audio}
+    <div class="empty-state">
+      <p class="dim">Drop an <span class="kbd">.ogg</span> audio file here, or pick a placement tool to start charting.</p>
     </div>
   {/if}
 </div>
@@ -386,5 +443,14 @@
   .dim {
     color: var(--fg-mute);
     font-size: 11px;
+  }
+  .kbd {
+    font-family: var(--font-mono);
+    background: var(--bg-2);
+    border: var(--hairline-soft);
+    border-radius: 2px;
+    padding: 1px 4px;
+    font-size: 10px;
+    color: var(--fg);
   }
 </style>

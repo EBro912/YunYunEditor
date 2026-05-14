@@ -17,21 +17,23 @@ A web-based visual chart editor for [YunYunLoader](https://github.com/EBro912/Yu
 
 ### Shortcuts
 
-| Key                              | Action                       |
-|----------------------------------|------------------------------|
-| `Space`                          | Play / pause                 |
-| `Home` / `End`                   | Seek to start / end          |
-| `1` / `2` / `3` / `4`            | Single / Hold / Rush / Eraser|
-| `V`                              | Select                       |
-| `S`                              | Toggle snap                  |
-| `[` / `]`                        | Halve / double snap division |
-| `Ctrl+Z` / `Ctrl+Shift+Z`        | Undo / redo                  |
-| `Ctrl+S`                         | Force autosave               |
-| `Ctrl+E`                         | Open Export dialog           |
-| `Ctrl+O`                         | Import .zip                  |
-| `Delete`                         | Remove selected notes        |
-| `,` / `.`                        | Nudge selection by snap unit |
-| `<` / `>`                        | Nudge selection by a beat    |
+| Key                              | Action                                  |
+|----------------------------------|-----------------------------------------|
+| `Space`                          | Play / pause                            |
+| `Home` / `End`                   | Seek to start / end                     |
+| `1` / `2` / `3` / `4`            | Single / Hold / Rush / Eraser tool      |
+| `V`                              | Select tool                             |
+| `S` / `D` / `K` / `L`            | Place note in lane 2 / 3 / 4 / 5 at playhead |
+| `[` / `]`                        | Halve / double snap division            |
+| `Ctrl+Z` / `Ctrl+Shift+Z`        | Undo / redo                             |
+| `Ctrl+S`                         | Force autosave                          |
+| `Ctrl+E`                         | Open Export dialog                      |
+| `Ctrl+O`                         | Import .zip                             |
+| `Ctrl+C` / `Ctrl+V`              | Copy / paste selection                  |
+| `Delete`                         | Remove selected notes                   |
+| `,` / `.`                        | Nudge selection by snap unit            |
+| `<` / `>`                        | Nudge selection by a beat               |
+| `?`                              | Show full keybinds list                 |
 
 
 ## Running Locally

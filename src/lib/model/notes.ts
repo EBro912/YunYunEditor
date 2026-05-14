@@ -39,3 +39,9 @@ export function stripId<T extends { id?: string }>(n: T): Omit<T, 'id'> {
   const { id: _id, ...rest } = n;
   return rest;
 }
+
+// Mirror a lane across the center of the playfield. For LANE_RANGE 2..5: 2↔5, 3↔4.
+// Generalizes if LANE_RANGE widens (TODO(lanes-1-6)) since it uses the range bounds.
+export function mirrorLane(lane: number): number {
+  return LANE_RANGE.min + LANE_RANGE.max - lane;
+}

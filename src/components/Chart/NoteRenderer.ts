@@ -244,10 +244,13 @@ function drawHold(ctx: CanvasRenderingContext2D, vp: Viewport, state: DrawState,
   const color = laneIsEdge(n.Lane) ? COLORS.noteHoldEdge : COLORS.noteHoldMid;
   const rx = Math.round(x + NOTE_PAD_X);
   const rw = Math.round(vp.laneWidth - NOTE_PAD_X * 2);
-  // tail
+  // tail. Derive tailH from rounded endpoints so the bottom edge lands on the same pixel as the
+  // beat/bar grid line drawn at round(yEnd) — independently rounding tailTop and tailH (via
+  // round(diff)) drifts by up to a pixel at small durations like 1/16.
   ctx.fillStyle = color;
   const tailTop = Math.round(Math.min(yStart, yEnd));
-  const tailH = Math.max(2, Math.round(Math.abs(yEnd - yStart)));
+  const tailBottom = Math.round(Math.max(yStart, yEnd));
+  const tailH = Math.max(2, tailBottom - tailTop);
   ctx.fillRect(rx + Math.round(rw * 0.25), tailTop, Math.round(rw * 0.5), tailH);
   // head
   drawSingle(ctx, vp, state, n as unknown as SingleNote);
@@ -262,10 +265,11 @@ function drawRush(ctx: CanvasRenderingContext2D, vp: Viewport, state: DrawState,
   if (Math.max(yStart, yEnd) < -NOTE_HEIGHT || Math.min(yStart, yEnd) > vp.height + NOTE_HEIGHT) return;
   const rx = Math.round(xLeft + NOTE_PAD_X);
   const rw = Math.round(xRight - xLeft - NOTE_PAD_X * 2);
-  // tail
+  // tail. See drawHold for why endpoints are rounded independently.
   ctx.fillStyle = 'rgba(255, 180, 84, 0.28)';
   const tailTop = Math.round(Math.min(yStart, yEnd));
-  const tailH = Math.max(2, Math.round(Math.abs(yEnd - yStart)));
+  const tailBottom = Math.round(Math.max(yStart, yEnd));
+  const tailH = Math.max(2, tailBottom - tailTop);
   ctx.fillRect(rx + Math.round(rw * 0.15), tailTop, Math.round(rw * 0.7), tailH);
   // head
   ctx.fillStyle = COLORS.noteRush;

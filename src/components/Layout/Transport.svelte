@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { editor, setSnap, setSnapDivision, setZoom } from '../../lib/state/editorStore';
+  import { editor, setSnap, setSnapDivision, setZoom, setPlaybackRate, ZOOM_BASELINE_PPS } from '../../lib/state/editorStore';
   import { SNAP_DIVISIONS, type SnapDivision } from '../../lib/timing/snap';
   import { transport } from '../../lib/audio/engine';
 
@@ -62,6 +62,42 @@
     } else {
       applyVolume(preMuteVolume > 0 ? preMuteVolume : 0.8);
     }
+  }
+
+  function onRateInput(e: Event) {
+    const v = Number((e.currentTarget as HTMLInputElement).value);
+    setPlaybackRate(v);
+    transport.setPlaybackRate(v);
+  }
+  function resetRate() {
+    setPlaybackRate(1);
+    transport.setPlaybackRate(1);
+  }
+
+  // Round-number zoom presets the +/- buttons step through, so clicks always land on a clean
+  // percentage. The continuous range [40, 1200] px/s underneath is preserved for wheel zoom and
+  // direct numeric input — the presets are just a convenience for the common case.
+  const ZOOM_PRESETS = [25, 50, 75, 100, 125, 150, 200, 250, 300, 400, 500] as const;
+  const currentZoomPct = $derived(Math.round(($editor.pixelsPerSecond / ZOOM_BASELINE_PPS) * 100));
+
+  function stepZoom(direction: -1 | 1) {
+    const cur = currentZoomPct;
+    let target: number;
+    if (direction === 1) {
+      target = ZOOM_PRESETS.find((p) => p > cur) ?? ZOOM_PRESETS[ZOOM_PRESETS.length - 1];
+    } else {
+      const lower = ZOOM_PRESETS.filter((p) => p < cur);
+      target = lower.length > 0 ? lower[lower.length - 1] : ZOOM_PRESETS[0];
+    }
+    setZoom((target / 100) * ZOOM_BASELINE_PPS);
+  }
+  function applyZoomPercent(pct: number) {
+    if (!Number.isFinite(pct)) return;
+    setZoom((pct / 100) * ZOOM_BASELINE_PPS);
+  }
+  function onZoomInput(e: Event) {
+    const v = Number((e.currentTarget as HTMLInputElement).value);
+    applyZoomPercent(v);
   }
 </script>
 
@@ -136,11 +172,37 @@
     <span class="mono vol-pct">{Math.round(volume * 100)}%</span>
   </div>
 
+  <div class="speed" title="Playback speed and pitch. Click value to reset.">
+    <span class="speed-label">speed</span>
+    <input
+      type="range"
+      min="0.25"
+      max="2"
+      step="0.05"
+      value={$editor.playbackRate}
+      oninput={onRateInput}
+      aria-label="Playback speed"
+    />
+    <button type="button" class="speed-value mono" onclick={resetRate} aria-label="Reset playback speed to 1.0×">
+      {$editor.playbackRate.toFixed(2)}×
+    </button>
+  </div>
+
   <div class="group right">
-    <label class="zoom">
-      <button onclick={() => setZoom($editor.pixelsPerSecond / 1.25)}>−</button>
-      <span class="mono">{Math.round($editor.pixelsPerSecond)} px/s</span>
-      <button onclick={() => setZoom($editor.pixelsPerSecond * 1.25)}>+</button>
+    <label class="zoom" title="Zoom (Ctrl+scroll for fine control)">
+      <button onclick={() => stepZoom(-1)}>−</button>
+      <input
+        type="number"
+        class="mono zoom-input"
+        min="18"
+        max="545"
+        step="1"
+        value={currentZoomPct}
+        onchange={onZoomInput}
+        aria-label="Zoom percent"
+      />
+      <span class="mono zoom-pct">%</span>
+      <button onclick={() => stepZoom(1)}>+</button>
     </label>
 
     <label class="snap">
@@ -215,6 +277,27 @@
     background: transparent;
     padding: 0 6px;
   }
+  .zoom-input {
+    background: transparent;
+    border: none;
+    color: var(--fg);
+    width: 42px;
+    text-align: right;
+    font-family: var(--font-mono);
+    font-size: 13px;
+    padding: 0;
+    /* Hide spinner controls — clutter at this size; +/- buttons cover step UX. */
+    -moz-appearance: textfield;
+    appearance: textfield;
+  }
+  .zoom-input::-webkit-outer-spin-button,
+  .zoom-input::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+  .zoom-pct {
+    color: var(--fg-mute);
+  }
   .snap {
     display: flex;
     align-items: center;
@@ -288,5 +371,60 @@
     font-size: 11px;
     min-width: 32px;
     text-align: right;
+  }
+  .speed {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    border: var(--hairline);
+    padding: 3px 8px;
+    border-radius: 2px;
+  }
+  .speed-label {
+    color: var(--fg-mute);
+    font-size: 11px;
+    text-transform: lowercase;
+  }
+  .speed input[type='range'] {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 80px;
+    height: 4px;
+    background: var(--bg-3);
+    border-radius: 2px;
+    outline: none;
+    cursor: pointer;
+  }
+  .speed input[type='range']::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--accent);
+    border: none;
+    cursor: pointer;
+  }
+  .speed input[type='range']::-moz-range-thumb {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--accent);
+    border: none;
+    cursor: pointer;
+  }
+  .speed-value {
+    background: transparent;
+    border: none;
+    color: var(--fg);
+    font-size: 11px;
+    padding: 0 2px;
+    min-width: 40px;
+    text-align: right;
+    cursor: pointer;
+    font-family: var(--font-mono);
+  }
+  .speed-value:hover {
+    color: var(--accent);
   }
 </style>

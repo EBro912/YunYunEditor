@@ -2,20 +2,30 @@
   import SongMetadataPanel from '../Panels/SongMetadataPanel.svelte';
   import LevelListPanel from '../Panels/LevelListPanel.svelte';
   import DraftsPanel from '../Panels/DraftsPanel.svelte';
+  import PanelHeader from './PanelHeader.svelte';
+  import { editor } from '../../lib/state/editorStore';
+
+  const isCollapsed = (id: string) => !!$editor.panelCollapsed[id];
 </script>
 
 <aside class="left">
-  <section class="panel">
-    <h2>Song</h2>
-    <SongMetadataPanel />
+  <section class="panel" class:collapsed={isCollapsed('song')}>
+    <PanelHeader title="Song" panelId="song" />
+    {#if !isCollapsed('song')}
+      <div id="panel-song"><SongMetadataPanel /></div>
+    {/if}
   </section>
-  <section class="panel">
-    <h2>Levels</h2>
-    <LevelListPanel />
+  <section class="panel" class:collapsed={isCollapsed('levels')}>
+    <PanelHeader title="Levels" panelId="levels" />
+    {#if !isCollapsed('levels')}
+      <div id="panel-levels"><LevelListPanel /></div>
+    {/if}
   </section>
-  <section class="panel">
-    <h2>Drafts</h2>
-    <DraftsPanel />
+  <section class="panel" class:collapsed={isCollapsed('drafts')}>
+    <PanelHeader title="Drafts" panelId="drafts" />
+    {#if !isCollapsed('drafts')}
+      <div id="panel-drafts"><DraftsPanel /></div>
+    {/if}
   </section>
 </aside>
 
@@ -32,12 +42,7 @@
     padding: var(--sp-3) var(--sp-4);
     border-bottom: var(--hairline);
   }
-  h2 {
-    margin: 0 0 var(--sp-2) 0;
-    font-size: 11px;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: var(--fg-mute);
-    font-weight: 600;
+  .panel.collapsed {
+    padding: var(--sp-2) var(--sp-4);
   }
 </style>
