@@ -63,8 +63,11 @@ export function stringifyLevel(level: LevelJson): string {
   // Strip in-memory uuids and force ShiftNotes to []. v1 doesn't edit ShiftNotes; preserving
   // imported contents would contradict the documented contract (PLAN.md: "always emit []").
   // TODO(shift-notes): widen when v2 exposes ShiftNote editing.
+  // Markers are an editor-only annotation — omit the key entirely (not []), it has no place in
+  // the on-disk chart format.
+  const { Markers: _markers, ...rest } = level;
   const out = {
-    ...level,
+    ...rest,
     SingleNotes: level.SingleNotes.map(stripId),
     HoldNotes: level.HoldNotes.map(stripId),
     ShiftNotes: [],

@@ -21,6 +21,15 @@ export interface PhaseEvent {
   Tick: number;
 }
 
+// Editor-only timeline annotation. Never leaves the editor: stripped on export (it isn't part
+// of the chart format the loader reads) and tolerated-as-missing on import. Drafts preserve it
+// because the in-memory level shape is what gets serialized to localStorage.
+export interface Marker {
+  Tick: number;
+  Label: string;
+  Note?: string;
+}
+
 export interface LevelJson {
   Version: 1;
   MusicInfoName: string;
@@ -36,6 +45,8 @@ export interface LevelJson {
   HoldNotes: HoldNote[];
   ShiftNotes: ShiftNote[];
   RushNotes: RushNote[];
+  // Editor-only; see Marker. Optional so existing drafts/imports without it stay valid.
+  Markers?: Marker[];
 }
 
 export function emptyLevel(musicInfoName: string, level: number, musicPath: string): LevelJson {
@@ -54,5 +65,6 @@ export function emptyLevel(musicInfoName: string, level: number, musicPath: stri
     HoldNotes: [],
     ShiftNotes: [],
     RushNotes: [],
+    Markers: [],
   };
 }

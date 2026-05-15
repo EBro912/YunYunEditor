@@ -6,6 +6,7 @@ import type { TempoSegment } from '../../lib/timing/ticks';
 import { tickToSeconds, TPQN } from '../../lib/timing/ticks';
 import { barTicks } from '../../lib/timing/snap';
 import { LANE_RANGE, type HoldNote, type RushNote, type SingleNote } from '../../lib/model/notes';
+import type { WaveformData } from '../../lib/audio/waveform';
 
 export interface Viewport {
   width: number;
@@ -27,6 +28,9 @@ export interface DrawState {
   level: LevelJson;
   tempoMap: TempoSegment[];
   selection: Set<string>;
+  // Optional scrolling waveform overlay. Drawn under the grid/notes when both are present.
+  waveform?: WaveformData | null;
+  showWaveform?: boolean;
 }
 
 export const COLORS = {
@@ -49,8 +53,10 @@ export const COLORS = {
   bpmMarker: '#6aa9ff',
   tsMarker: '#ffb454',
   phaseMarker: '#b97cff',
+  marker: '#e85d9a',
   text: '#a4a7b0',
   scanline: 'rgba(255, 255, 255, 0.012)',
+  waveform: 'rgba(106, 169, 255, 0.20)',
 };
 
 export function laneIsEdge(laneIdx: number): boolean {
@@ -88,6 +94,7 @@ export function draw(ctx: CanvasRenderingContext2D, vp: Viewport, state: DrawSta
   ctx.fillRect(0, 0, width, height);
 
   drawLanes(ctx, vp);
+  if (state.showWaveform && state.waveform) drawWaveform(ctx, vp, state.waveform);
   drawGrid(ctx, vp, state);
   drawEvents(ctx, vp, state);
   drawTargets(ctx, vp);
@@ -130,6 +137,28 @@ function drawLanes(ctx: CanvasRenderingContext2D, vp: Viewport): void {
   ctx.moveTo(right + 0.5, 0);
   ctx.lineTo(right + 0.5, vp.height);
   ctx.stroke();
+}
+
+// Scrolling waveform: one screen row → one song-time → one precomputed peak bin. playheadSec
+// (and thus every row's sec) is already audio-clock time — tickToSeconds folds in ScoreOffset —
+// so bins index straight off it with no extra correction. Rendered as a faint mirrored band
+// centered in the playfield, under the grid so notes stay legible.
+function drawWaveform(ctx: CanvasRenderingContext2D, vp: Viewport, wf: WaveformData): void {
+  const centerX = vp.playfieldX + vp.playfieldWidth / 2;
+  const maxHalf = vp.playfieldWidth / 2;
+  ctx.fillStyle = COLORS.waveform;
+  for (let y = 0; y < vp.height; y++) {
+    const sec = vp.playheadSec - (y - vp.playheadY) / vp.pixelsPerSecond;
+    if (sec < 0) continue;
+    const bin = Math.floor(sec * wf.binsPerSecond);
+    if (bin < 0 || bin >= wf.binCount) continue;
+    const min = wf.peaks[bin * 2];
+    const max = wf.peaks[bin * 2 + 1];
+    const amp = Math.min(1, Math.max(Math.abs(min), Math.abs(max)));
+    if (amp <= 0) continue;
+    const half = amp * maxHalf;
+    ctx.fillRect(centerX - half, y, half * 2, 1);
+  }
 }
 
 function drawGrid(ctx: CanvasRenderingContext2D, vp: Viewport, state: DrawState): void {
@@ -192,6 +221,18 @@ function drawEvents(ctx: CanvasRenderingContext2D, vp: Viewport, state: DrawStat
   drawMarker(level.InitTimeSignature.Tick, COLORS.tsMarker, `${level.InitTimeSignature.Numerator}/${level.InitTimeSignature.Denominator}`);
   for (const e of level.TimeSignature) drawMarker(e.Tick, COLORS.tsMarker, `${e.Numerator}/${e.Denominator}`);
   for (const e of level.PhaseChangeEvents) drawMarker(e.Tick, COLORS.phaseMarker, '◇ phase');
+
+  // Editor-only markers. Distinct color; label drawn *below* the line so it doesn't collide with
+  // the tempo/meter/phase labels (which sit above). Click-to-seek is handled in ChartCanvas.
+  for (const m of level.Markers ?? []) {
+    const y = tickToY(m.Tick, vp, tempoMap, level.ScoreOffset);
+    if (y < -10 || y > vp.height + 10) continue;
+    ctx.fillStyle = COLORS.marker;
+    ctx.fillRect(0, Math.round(y) - 1, vp.leftGutter - 4, 2);
+    ctx.font = '10px ui-monospace, monospace';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(`◆ ${m.Label || 'marker'}`, 4, Math.round(y) + 8);
+  }
 }
 
 function drawNotes(ctx: CanvasRenderingContext2D, vp: Viewport, state: DrawState): void {

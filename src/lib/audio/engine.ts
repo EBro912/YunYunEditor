@@ -25,6 +25,10 @@ class Transport {
   // Monotonic load token. Each load() call claims a fresh value; if a slower decode resolves
   // after a newer load has been issued, we ignore the stale buffer instead of installing it.
   private loadToken = 0;
+  // Monotonic playback epoch. Bumped whenever the song↔context time mapping discontinuously
+  // changes (play/pause/seek/rate-rebase/load/unload). External schedulers (metronome, hit
+  // sounds) watch this to know they must flush already-scheduled events and re-sync.
+  private epoch = 0;
 
   ensureContext(): AudioContext {
     if (!this.ctx) {
@@ -59,6 +63,7 @@ class Transport {
     }
     this.rate = clamped;
     if (this.source) this.source.playbackRate.value = clamped;
+    this.epoch++;
   }
 
   getPlaybackRate(): number {
@@ -68,6 +73,11 @@ class Transport {
   async load(bytes: ArrayBuffer): Promise<void> {
     const ctx = this.ensureContext();
     this.stopInternal();
+    // Bump now, not after decode: stopInternal() has already killed the old playback, so the
+    // song↔context mapping is dead. Deferring to the post-decode bump would let a scheduler
+    // keep queued FX (e.g. a looped sustain) alive against the old song during a slow/failed
+    // decode. The post-decode bump still fires for the freshly-loaded buffer.
+    this.epoch++;
     const token = ++this.loadToken;
     let decoded: AudioBuffer;
     try {
@@ -85,6 +95,7 @@ class Transport {
     }
     this.buffer = decoded;
     this.playStartSongSeconds = 0;
+    this.epoch++;
   }
 
   unload(): void {
@@ -93,6 +104,28 @@ class Transport {
     this.loadToken++;
     this.buffer = null;
     this.playStartSongSeconds = 0;
+    this.epoch++;
+  }
+
+  getContext(): AudioContext | null {
+    return this.ctx;
+  }
+
+  getAudioBuffer(): AudioBuffer | null {
+    return this.buffer;
+  }
+
+  // Monotonic; changes whenever the song↔context time mapping jumps. Schedulers diff this
+  // against their last-seen value to decide when to flush pending scheduled audio.
+  getEpoch(): number {
+    return this.epoch;
+  }
+
+  // Inverse of songSeconds(): map a (future) song-time onto the AudioContext clock so callers
+  // can schedule sample-accurate events. Only meaningful while playing — returns null otherwise.
+  songTimeToContextTime(songSec: number): number | null {
+    if (!this.ctx || !this.playing) return null;
+    return this.playStartCtxTime + (songSec - this.playStartSongSeconds) / this.rate;
   }
 
   isLoaded(): boolean {
@@ -121,24 +154,30 @@ class Transport {
         this.playing = false;
         this.playStartSongSeconds = this.duration();
         this.source = null;
+        this.epoch++;
       }
     };
     src.start(0, startSec);
     this.source = src;
     this.playing = true;
+    this.epoch++;
   }
 
   pause(): void {
     if (!this.playing) return;
     this.playStartSongSeconds = this.songSeconds();
     this.stopInternal();
+    this.epoch++;
   }
 
   seek(songSec: number): void {
     const wasPlaying = this.playing;
     this.stopInternal();
     this.playStartSongSeconds = clamp(songSec, 0, this.duration());
+    // play() bumps the epoch itself; bump here too for the paused-seek case so a scrub while
+    // stopped still invalidates anything a scheduler may have queued.
     if (wasPlaying) this.play();
+    else this.epoch++;
   }
 
   songSeconds(): number {

@@ -15,10 +15,20 @@
 
   const changelog: ChangelogEntry[] = [
     {
+      version: '0.4.0',
+      changes: [
+        'Added a toggleable metronome with an adjustable volume, consisting of simple blips with a special blip on each downbeat.',
+        'Added toggleable hit sounds utilizing the real in-game sounds, with an adjustable volume.',
+        'Added a toggleable scrolling waveform display behind the chart.',
+        'Added timeline markers for adding reminders or notes on the chart in the Events section. These are editor-only and persist in drafts, but are not exported.',
+        'Fixed BPM and Tick values being able to go negative.',
+      ],
+    },
+    {
       version: '0.3.0',
       changes: [
         'Added an Options panel with toggles for preventing duplicate notes, locking notes, mirroring placement, and note snapping.',
-        'Moved the ScoreOffset section to the new Options panel with a new \'ms\' button to display the ScoreOffset in milliseconds.',
+        'Moved the ScoreOffset section to the new Options panel with a new \'ms\' toggle to display the ScoreOffset in milliseconds.',
         'Added a playback speed slider.',
         'Added S/D/K/L keybinds to place a single note in each respective lane at the playhead.',
         'Added a keybinds dialog accessible from the toolbar or the ? key.',

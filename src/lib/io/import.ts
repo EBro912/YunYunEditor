@@ -140,6 +140,17 @@ export function parseLevelJson(text: string): LevelJson {
   raw.BpmChangeEvents = Array.isArray(raw.BpmChangeEvents) ? raw.BpmChangeEvents : [];
   raw.TimeSignature = Array.isArray(raw.TimeSignature) ? raw.TimeSignature : [];
   raw.PhaseChangeEvents = Array.isArray(raw.PhaseChangeEvents) ? raw.PhaseChangeEvents : [];
+  // Markers are editor-only and won't exist on third-party / pre-0.4.0 charts — default to [].
+  // Coerce each entry so a hand-edited file can't inject a non-string Label into the UI.
+  raw.Markers = Array.isArray(raw.Markers)
+    ? (raw.Markers as unknown[]).flatMap((m) => {
+        if (!isPlainObject(m)) return [];
+        const tick = typeof m.Tick === 'number' && Number.isFinite(m.Tick) ? m.Tick : 0;
+        const label = typeof m.Label === 'string' ? m.Label : '';
+        const note = typeof m.Note === 'string' ? m.Note : undefined;
+        return [note !== undefined ? { Tick: tick, Label: label, Note: note } : { Tick: tick, Label: label }];
+      })
+    : [];
   // InitBpm and InitTimeSignature are dereferenced unconditionally during rendering; a
   // malformed level missing either would throw deep in the canvas/timing layer. Default
   // to sane values so the editor stays responsive — any garbage is visible in the panel.

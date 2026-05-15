@@ -17,6 +17,13 @@ export interface EditorState {
   mirrorPlacement: boolean;
   offsetInMs: boolean;
   playbackRate: number;
+  // v0.4.0 playback FX + display. metronome/hitSounds gate the lookahead scheduler; the volumes
+  // are 0..1 gains applied to those channels independently of the song volume.
+  metronome: boolean;
+  metronomeVolume: number;
+  hitSounds: boolean;
+  hitSoundVolume: number;
+  showWaveform: boolean;
   // Per-panel collapsed state keyed by panel id (e.g., 'tools', 'options', 'history', 'selection', 'events').
   panelCollapsed: Record<string, boolean>;
 }
@@ -38,6 +45,11 @@ const initial: EditorState = {
   mirrorPlacement: false,
   offsetInMs: false,
   playbackRate: 1,
+  metronome: false,
+  metronomeVolume: 0.7,
+  hitSounds: false,
+  hitSoundVolume: 0.7,
+  showWaveform: false,
   panelCollapsed: {},
 };
 
@@ -50,6 +62,15 @@ interface PersistedOptions {
   mirrorPlacement?: boolean;
   offsetInMs?: boolean;
   playbackRate?: number;
+  metronome?: boolean;
+  metronomeVolume?: number;
+  hitSounds?: boolean;
+  hitSoundVolume?: number;
+  showWaveform?: boolean;
+}
+
+function clamp01(v: number): number {
+  return Math.max(0, Math.min(1, v));
 }
 
 function loadPersisted(): Partial<EditorState> {
@@ -66,6 +87,15 @@ function loadPersisted(): Partial<EditorState> {
       if (typeof parsed.playbackRate === 'number' && Number.isFinite(parsed.playbackRate)) {
         out.playbackRate = Math.max(0.25, Math.min(2.0, parsed.playbackRate));
       }
+      if (typeof parsed.metronome === 'boolean') out.metronome = parsed.metronome;
+      if (typeof parsed.metronomeVolume === 'number' && Number.isFinite(parsed.metronomeVolume)) {
+        out.metronomeVolume = clamp01(parsed.metronomeVolume);
+      }
+      if (typeof parsed.hitSounds === 'boolean') out.hitSounds = parsed.hitSounds;
+      if (typeof parsed.hitSoundVolume === 'number' && Number.isFinite(parsed.hitSoundVolume)) {
+        out.hitSoundVolume = clamp01(parsed.hitSoundVolume);
+      }
+      if (typeof parsed.showWaveform === 'boolean') out.showWaveform = parsed.showWaveform;
     }
   } catch {
     // ignore — corrupt/missing keys fall back to defaults
@@ -93,6 +123,11 @@ function persistOptions(s: EditorState): void {
       mirrorPlacement: s.mirrorPlacement,
       offsetInMs: s.offsetInMs,
       playbackRate: s.playbackRate,
+      metronome: s.metronome,
+      metronomeVolume: s.metronomeVolume,
+      hitSounds: s.hitSounds,
+      hitSoundVolume: s.hitSoundVolume,
+      showWaveform: s.showWaveform,
     };
     localStorage.setItem(OPTIONS_KEY, JSON.stringify(payload));
   } catch {
@@ -194,6 +229,48 @@ export function setPlaybackRate(v: number): void {
   const clamped = Math.max(0.25, Math.min(2.0, v));
   editor.update((s) => {
     const next = { ...s, playbackRate: clamped };
+    persistOptions(next);
+    return next;
+  });
+}
+
+export function setMetronome(v: boolean): void {
+  editor.update((s) => {
+    const next = { ...s, metronome: v };
+    persistOptions(next);
+    return next;
+  });
+}
+
+export function setMetronomeVolume(v: number): void {
+  const clamped = clamp01(v);
+  editor.update((s) => {
+    const next = { ...s, metronomeVolume: clamped };
+    persistOptions(next);
+    return next;
+  });
+}
+
+export function setHitSounds(v: boolean): void {
+  editor.update((s) => {
+    const next = { ...s, hitSounds: v };
+    persistOptions(next);
+    return next;
+  });
+}
+
+export function setHitSoundVolume(v: number): void {
+  const clamped = clamp01(v);
+  editor.update((s) => {
+    const next = { ...s, hitSoundVolume: clamped };
+    persistOptions(next);
+    return next;
+  });
+}
+
+export function setShowWaveform(v: boolean): void {
+  editor.update((s) => {
+    const next = { ...s, showWaveform: v };
     persistOptions(next);
     return next;
   });

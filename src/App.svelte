@@ -22,6 +22,7 @@
   import { emptySong } from './lib/model/song';
   import type { ImportedMod } from './lib/io/import';
   import { transport } from './lib/audio/engine';
+  import { playbackFx } from './lib/audio/playbackFx';
   import { buildTempoMap, secondsToTick, tickToSeconds } from './lib/timing/ticks';
   import { SNAP_DIVISIONS, snapTick, type SnapDivision } from './lib/timing/snap';
   import { mirrorLane, newId, type HoldNote, type RushNote, type SingleNote } from './lib/model/notes';
@@ -62,13 +63,29 @@
     currentSec = snap.songSeconds;
     playing = snap.playing;
     durationSec = snap.durationSeconds;
-    if (snap.playing) {
-      const lvl = $activeLevel;
-      if (lvl) {
-        const map = buildTempoMap(lvl.InitBpm, lvl.BpmChangeEvents);
+    const lvl = $activeLevel;
+    if (lvl) {
+      const map = buildTempoMap(lvl.InitBpm, lvl.BpmChangeEvents);
+      if (snap.playing) {
         const t = secondsToTick(snap.songSeconds, map, lvl.ScoreOffset);
         setPlayhead(Math.max(0, t));
       }
+      // Drive the metronome / hit-sound scheduler. pump() no-ops while paused but still flushes
+      // anything it had queued (the transport epoch bumps on pause/seek), so call it every frame.
+      const ed = $editor;
+      playbackFx.pump({
+        level: lvl,
+        tempoMap: map,
+        songSeconds: snap.songSeconds,
+        metronome: ed.metronome,
+        metronomeVolume: ed.metronomeVolume,
+        hitSounds: ed.hitSounds,
+        hitSoundVolume: ed.hitSoundVolume,
+      });
+    } else {
+      // No active level → pump() won't run, so it can't observe an epoch bump from an
+      // unload/new-project. Flush directly so a queued looped sustain can't outlive the chart.
+      playbackFx.flush();
     }
     raf = requestAnimationFrame(tick);
   }
@@ -113,6 +130,9 @@
 
   onDestroy(() => {
     if (raf) cancelAnimationFrame(raf);
+    // rAF is already cancelled, so tick()/pump() won't run again to flush — do it explicitly
+    // before tearing down the transport.
+    playbackFx.flush();
     transport.unload();
   });
 
@@ -161,6 +181,7 @@
     // chart against the new (empty) audio. Drop history so undo can't desync them.
     clearHistory();
     transport.unload();
+    playbackFx.flush();
     durationSec = 0;
   }
 

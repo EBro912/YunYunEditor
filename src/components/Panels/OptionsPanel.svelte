@@ -5,6 +5,11 @@
     setLockNotes,
     setMirrorPlacement,
     setOffsetInMs,
+    setMetronome,
+    setMetronomeVolume,
+    setHitSounds,
+    setHitSoundVolume,
+    setShowWaveform,
   } from '../../lib/state/editorStore';
   import { activeLevel, mutateActiveLevel, patchActiveLevel } from '../../lib/state/chartStore';
   import { pushHistory } from '../../lib/state/history';
@@ -133,6 +138,63 @@
     <span>Mirror placement</span>
   </label>
 
+  <div class="fx">
+    <label class="row">
+      <input
+        type="checkbox"
+        checked={$editor.metronome}
+        onchange={(e) => setMetronome((e.currentTarget as HTMLInputElement).checked)}
+      />
+      <span>Metronome</span>
+    </label>
+    {#if $editor.metronome}
+      <label class="vol" title="Metronome click volume">
+        <span>vol</span>
+        <input
+          type="range"
+          min="0"
+          max="1"
+          step="0.05"
+          value={$editor.metronomeVolume}
+          oninput={(e) => setMetronomeVolume(Number((e.currentTarget as HTMLInputElement).value))}
+        />
+        <span class="mono">{Math.round($editor.metronomeVolume * 100)}%</span>
+      </label>
+    {/if}
+
+    <label class="row">
+      <input
+        type="checkbox"
+        checked={$editor.hitSounds}
+        onchange={(e) => setHitSounds((e.currentTarget as HTMLInputElement).checked)}
+      />
+      <span>Hit sounds</span>
+    </label>
+    {#if $editor.hitSounds}
+      <label class="vol" title="Hit sound volume">
+        <span>vol</span>
+        <input
+          type="range"
+          min="0"
+          max="1"
+          step="0.05"
+          value={$editor.hitSoundVolume}
+          oninput={(e) => setHitSoundVolume(Number((e.currentTarget as HTMLInputElement).value))}
+        />
+        <span class="mono">{Math.round($editor.hitSoundVolume * 100)}%</span>
+      </label>
+    {/if}
+
+    <label class="row" title="Render a scrolling waveform behind the chart. May cause performance issues on lower end systems.">
+      <input
+        type="checkbox"
+        checked={$editor.showWaveform}
+        onchange={(e) => setShowWaveform((e.currentTarget as HTMLInputElement).checked)}
+      />
+      <span>Show waveform</span>
+    </label>
+  </div>
+
   {#if $activeLevel}
     {@const lvl = $activeLevel as LevelJson}
     <div class="offset-row">
@@ -146,7 +208,7 @@
       />
       <button class="mini" onclick={() => bumpOffset(lvl, -1)} title="−1ms">−</button>
       <button class="mini" onclick={() => bumpOffset(lvl, +1)} title="+1ms">+</button>
-      <label class="ms-toggle" title="Toggle display units (model stays in seconds)">
+      <label class="ms-toggle" title="Toggle displayed unit">
         <input
           type="checkbox"
           checked={$editor.offsetInMs}
@@ -161,7 +223,7 @@
     <button type="button" onclick={resnapSelected} disabled={selectionCount === 0} title="Snap selected notes' Tick to the current snap division">
       Resnap selected{selectionCount > 0 ? ` (${selectionCount})` : ''}
     </button>
-    <button type="button" onclick={resnapAll} disabled={!$activeLevel} title="Snap every note's Tick to the current snap division (hold/rush durations not resnapped)">
+    <button type="button" onclick={resnapAll} disabled={!$activeLevel} title="Snap every note's Tick to the current snap division. Hold/Rush durations are not resnapped.">
       Resnap all
     </button>
   </div>
@@ -262,5 +324,27 @@
   .resnap button:disabled {
     opacity: 0.4;
     cursor: not-allowed;
+  }
+  .fx {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .vol {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding-left: 20px;
+    font-size: 11px;
+    color: var(--fg-mute);
+  }
+  .vol input[type='range'] {
+    flex: 1;
+    accent-color: var(--accent);
+    min-width: 0;
+  }
+  .vol .mono {
+    min-width: 32px;
+    text-align: right;
   }
 </style>
