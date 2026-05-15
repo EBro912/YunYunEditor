@@ -36,6 +36,10 @@ class PlaybackFx {
   private lastHitSounds = false;
   // Song-time already scheduled up to (exclusive upper bound of the last window).
   private cursorSong = 0;
+  // The next scheduling window is the first after a transport discontinuity (play/seek). Its
+  // lower bound is inclusive and anchored at the user's chosen position so a beat / hit sound
+  // sitting exactly on the play-or-seek point isn't dropped.
+  private freshEpoch = false;
   // Scheduled-but-not-finished nodes, tracked so a flush can silence queued audio immediately.
   private pending = new Set<AudioScheduledSourceNode>();
 
@@ -49,7 +53,10 @@ class PlaybackFx {
       // old mapping and re-anchor the cursor at the current position.
       this.flush();
       this.lastEpoch = epoch;
-      this.cursorSong = cfg.songSeconds;
+      // Anchor at the play/seek position, not the already-advanced playhead, so the first
+      // window covers an event sitting exactly on that position.
+      this.cursorSong = transport.getAnchorSongSeconds();
+      this.freshEpoch = true;
     }
 
     // A channel switched off must silence what it already queued — most audible for a looped
@@ -59,6 +66,7 @@ class PlaybackFx {
     if ((this.lastMetronome && !cfg.metronome) || (this.lastHitSounds && !cfg.hitSounds)) {
       this.flush();
       this.cursorSong = cfg.songSeconds;
+      this.freshEpoch = false;
     }
     this.lastMetronome = cfg.metronome;
     this.lastHitSounds = cfg.hitSounds;
@@ -66,17 +74,26 @@ class PlaybackFx {
     if (!transport.isPlaying()) return;
     if (cfg.hitSounds && !getHitBuffers()) void ensureHitSounds(ctx);
 
-    const windowStart = Math.max(this.cursorSong, cfg.songSeconds);
+    // First window after a discontinuity starts at the anchor (cursorSong), but never more
+    // than one lookahead behind the playhead: a long stall before the first frame catches up
+    // at most LOOKAHEAD of beats rather than machine-gunning every missed one (same stall
+    // philosophy as the steady-state clamp below).
+    const windowStart = this.freshEpoch
+      ? Math.max(this.cursorSong, cfg.songSeconds - LOOKAHEAD)
+      : Math.max(this.cursorSong, cfg.songSeconds);
     const windowEnd = cfg.songSeconds + LOOKAHEAD;
     if (windowEnd <= windowStart) {
       this.cursorSong = windowEnd;
+      this.freshEpoch = false;
       return;
     }
 
-    if (cfg.metronome) this.scheduleBeats(ctx, cfg, windowStart, windowEnd);
-    if (cfg.hitSounds) this.scheduleHits(ctx, cfg, windowStart, windowEnd);
+    const inclusiveLo = this.freshEpoch;
+    if (cfg.metronome) this.scheduleBeats(ctx, cfg, windowStart, windowEnd, inclusiveLo);
+    if (cfg.hitSounds) this.scheduleHits(ctx, cfg, windowStart, windowEnd, inclusiveLo);
 
     this.cursorSong = windowEnd;
+    this.freshEpoch = false;
   }
 
   // Stop everything queued. Called on transport discontinuities and when FX are switched off.
@@ -117,7 +134,13 @@ class PlaybackFx {
     return Math.max(t, ctx.currentTime);
   }
 
-  private scheduleBeats(ctx: AudioContext, cfg: PumpConfig, loSong: number, hiSong: number): void {
+  private scheduleBeats(
+    ctx: AudioContext,
+    cfg: PumpConfig,
+    loSong: number,
+    hiSong: number,
+    inclusiveLo: boolean,
+  ): void {
     const { level, tempoMap } = cfg;
     const off = level.ScoreOffset;
     const tsList: TimeSignatureEvent[] = [level.InitTimeSignature, ...level.TimeSignature];
@@ -133,36 +156,53 @@ class PlaybackFx {
     const tLo = secondsToTick(loSong, tempoMap, off);
     let seg = segFor(tLo);
     // First beat boundary (anchored at the TS-change tick, matching the rendered grid) at/after tLo.
-    let k = Math.ceil((tLo - seg.Tick) / TPQN);
-    let tick = seg.Tick + k * TPQN;
+    let tick = seg.Tick + Math.ceil((tLo - seg.Tick) / TPQN) * TPQN;
+    // A TS change between tLo and that beat re-anchors the grid at the change tick, putting a
+    // downbeat there ahead of the computed beat. Start from it instead of overshooting.
+    const firstChange = tsList.find((ts) => ts.Tick > tLo);
+    if (firstChange && firstChange.Tick < tick) {
+      seg = firstChange;
+      tick = firstChange.Tick;
+    }
 
     for (let guard = 0; guard < MAX_EVENTS; guard++) {
-      // Re-anchor when we cross into a later TS segment so beats stay aligned to that segment.
-      const s = segFor(tick);
-      if (s.Tick !== seg.Tick) {
-        seg = s;
-        tick = seg.Tick + Math.ceil((tick - seg.Tick) / TPQN) * TPQN;
-      }
       const songSec = tickToSeconds(tick, tempoMap, off);
       if (songSec > hiSong) break;
-      if (songSec > loSong) {
+      if (inclusiveLo ? songSec >= loSong : songSec > loSong) {
         const bt = barTicks(seg);
         const accent = Number.isFinite(bt) && bt > 0 ? (tick - seg.Tick) % bt === 0 : false;
         const when = this.at(ctx, songSec);
         if (when != null) this.click(ctx, when, accent, cfg.metronomeVolume);
       }
-      tick += TPQN;
+      // Advance one beat, but snap onto a TS change's downbeat if one falls before it — the
+      // grid re-anchors at the change tick, so that tick is the next beat, not a rounded-up one.
+      const naive = tick + TPQN;
+      const change = tsList.find((ts) => ts.Tick > tick);
+      if (change && change.Tick < naive) {
+        tick = change.Tick;
+        seg = change;
+      } else {
+        tick = naive;
+        seg = segFor(naive);
+      }
     }
   }
 
-  private scheduleHits(ctx: AudioContext, cfg: PumpConfig, loSong: number, hiSong: number): void {
+  private scheduleHits(
+    ctx: AudioContext,
+    cfg: PumpConfig,
+    loSong: number,
+    hiSong: number,
+    inclusiveLo: boolean,
+  ): void {
     const bufs = getHitBuffers();
     if (!bufs) return;
     const { level, tempoMap } = cfg;
     const off = level.ScoreOffset;
     const vol = cfg.hitSoundVolume;
 
-    const inWindow = (songSec: number) => songSec > loSong && songSec <= hiSong;
+    const inWindow = (songSec: number) =>
+      (inclusiveLo ? songSec >= loSong : songSec > loSong) && songSec <= hiSong;
 
     for (const n of level.SingleNotes) {
       const s = tickToSeconds(n.Tick, tempoMap, off);

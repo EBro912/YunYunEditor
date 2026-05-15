@@ -190,6 +190,14 @@ class Transport {
     return this.playing;
   }
 
+  // Song-time the current epoch's mapping is anchored at (the play/seek/pause position).
+  // songSeconds() has already advanced past this by the time a rAF-driven scheduler observes
+  // the epoch bump; schedulers use this so the first post-discontinuity window starts at the
+  // user's chosen position instead of dropping an event that sits exactly on it.
+  getAnchorSongSeconds(): number {
+    return this.playStartSongSeconds;
+  }
+
   snapshot(): TransportSnapshot {
     return {
       songSeconds: this.songSeconds(),
