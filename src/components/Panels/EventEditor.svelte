@@ -3,9 +3,9 @@
   import { editor } from '../../lib/state/editorStore';
   import { pushHistory } from '../../lib/state/history';
   import { snapTick } from '../../lib/timing/snap';
-  import type { BpmEvent, TimeSignatureEvent, PhaseEvent, LevelJson } from '../../lib/model/level';
+  import type { BpmEvent, TimeSignatureEvent, PhaseEvent, Marker, LevelJson } from '../../lib/model/level';
 
-  type Tab = 'bpm' | 'ts' | 'phase';
+  type Tab = 'bpm' | 'ts' | 'phase' | 'markers';
   let tab = $state<Tab>('bpm');
 
   function spawnTick(lvl: LevelJson): number {
@@ -20,6 +20,20 @@
   function toPositiveInt(v: string): number {
     const n = Math.floor(Number(v));
     return Number.isFinite(n) && n >= 1 ? n : 1;
+  }
+
+  // Ticks are non-negative integers; a negative tick (reachable via the spinbox down-arrow)
+  // desyncs every downstream timing lookup. Clamp garbage / negatives to 0.
+  function toTick(v: string): number {
+    const n = Math.floor(Number(v));
+    return Number.isFinite(n) && n >= 0 ? n : 0;
+  }
+
+  // Bpm feeds bpmToSpt() = 60 / (bpm * TPQN): zero or negative produces Infinity / reversed
+  // time and corrupts the tempo map. Keep it strictly positive; fall back to 1 on garbage.
+  function toPositiveBpm(v: string): number {
+    const n = Number(v);
+    return Number.isFinite(n) && n > 0 ? n : 1;
   }
 
   // Last event strictly before `tick`. New events inherit values from the segment they're being
@@ -84,6 +98,39 @@
     pushHistory();
     const newEv: PhaseEvent = { Tick: tick };
     patchActiveLevel({ PhaseChangeEvents: [...lvl.PhaseChangeEvents, newEv].sort((a, b) => a.Tick - b.Tick) });
+  }
+
+  // Markers are editor-only annotations (stripped on export). Optional on the level, so read
+  // through a [] fallback everywhere.
+  function markersOf(lvl: LevelJson): Marker[] {
+    return lvl.Markers ?? [];
+  }
+  function addMarker() {
+    const lvl = $activeLevel;
+    if (!lvl) return;
+    const tick = spawnTick(lvl);
+    pushHistory();
+    const next: Marker = { Tick: tick, Label: '', Note: '' };
+    patchActiveLevel({ Markers: [...markersOf(lvl), next].sort((a, b) => a.Tick - b.Tick) });
+  }
+  function patchMarkerAt(idx: number, field: keyof Marker, v: string | number) {
+    const lvl = $activeLevel;
+    if (!lvl) return;
+    const arr = markersOf(lvl).slice();
+    arr[idx] = { ...arr[idx], [field]: v };
+    patchActiveLevel({ Markers: arr });
+  }
+  function commitMarkerSort() {
+    const lvl = $activeLevel;
+    if (!lvl) return;
+    const arr = markersOf(lvl).slice().sort((a, b) => a.Tick - b.Tick);
+    patchActiveLevel({ Markers: arr });
+  }
+  function deleteMarkerAt(idx: number) {
+    const lvl = $activeLevel;
+    if (!lvl) return;
+    pushHistory();
+    patchActiveLevel({ Markers: markersOf(lvl).filter((_, i) => i !== idx) });
   }
 
   function patchInitBpm<K extends keyof BpmEvent>(field: K, v: BpmEvent[K]) {
@@ -171,6 +218,7 @@
     <button class:active={tab === 'bpm'} onclick={() => (tab = 'bpm')}>BPM</button>
     <button class:active={tab === 'ts'} onclick={() => (tab = 'ts')}>Time Sig</button>
     <button class:active={tab === 'phase'} onclick={() => (tab = 'phase')}>Phase</button>
+    <button class:active={tab === 'markers'} onclick={() => (tab = 'markers')}>Markers</button>
   </div>
 
   {#if tab === 'bpm'}
@@ -182,10 +230,11 @@
           <td>
             <input
               type="number"
+              min="0"
               step="0.001"
               value={lvl.InitBpm.Bpm}
               onfocus={() => pushHistory()}
-              oninput={(e) => patchInitBpm('Bpm', Number((e.currentTarget as HTMLInputElement).value))}
+              oninput={(e) => patchInitBpm('Bpm', toPositiveBpm((e.currentTarget as HTMLInputElement).value))}
             />
           </td>
           <td><span class="lock" title="initial — cannot delete">init</span></td>
@@ -195,19 +244,21 @@
             <td>
               <input
                 type="number"
+                min="0"
                 value={ev.Tick}
                 onfocus={() => pushHistory()}
                 onchange={commitBpmSort}
-                oninput={(e) => patchBpmAt(i, 'Tick', Number((e.currentTarget as HTMLInputElement).value))}
+                oninput={(e) => patchBpmAt(i, 'Tick', toTick((e.currentTarget as HTMLInputElement).value))}
               />
             </td>
             <td>
               <input
                 type="number"
+                min="0"
                 step="0.001"
                 value={ev.Bpm}
                 onfocus={() => pushHistory()}
-                oninput={(e) => patchBpmAt(i, 'Bpm', Number((e.currentTarget as HTMLInputElement).value))}
+                oninput={(e) => patchBpmAt(i, 'Bpm', toPositiveBpm((e.currentTarget as HTMLInputElement).value))}
               />
             </td>
             <td><button class="mini" onclick={() => deleteBpmAt(i)}>✕</button></td>
@@ -247,10 +298,11 @@
             <td>
               <input
                 type="number"
+                min="0"
                 value={ev.Tick}
                 onfocus={() => pushHistory()}
                 onchange={commitTsSort}
-                oninput={(e) => patchTsAt(i, 'Tick', Number((e.currentTarget as HTMLInputElement).value))}
+                oninput={(e) => patchTsAt(i, 'Tick', toTick((e.currentTarget as HTMLInputElement).value))}
               />
             </td>
             <td>
@@ -277,7 +329,7 @@
       </tbody>
     </table>
     <button class="add" onclick={addTs}>+ TS change</button>
-  {:else}
+  {:else if tab === 'phase'}
     <table class="ev">
       <thead><tr><th>Tick</th><th></th></tr></thead>
       <tbody>
@@ -286,10 +338,11 @@
             <td>
               <input
                 type="number"
+                min="0"
                 value={ev.Tick}
                 onfocus={() => pushHistory()}
                 onchange={commitPhaseSort}
-                oninput={(e) => patchPhaseAt(i, Number((e.currentTarget as HTMLInputElement).value))}
+                oninput={(e) => patchPhaseAt(i, toTick((e.currentTarget as HTMLInputElement).value))}
               />
             </td>
             <td><button class="mini" onclick={() => deletePhaseAt(i)}>✕</button></td>
@@ -300,6 +353,47 @@
       </tbody>
     </table>
     <button class="add" onclick={addPhase}>+ Phase change</button>
+  {:else}
+    <p class="hint">Editor-only timeline notes. Persists in drafts, but will not be exported.</p>
+    <table class="ev">
+      <thead><tr><th>Tick</th><th>Label</th><th>Note</th><th></th></tr></thead>
+      <tbody>
+        {#each markersOf(lvl) as mk, i (i)}
+          <tr>
+            <td>
+              <input
+                type="number"
+                min="0"
+                value={mk.Tick}
+                onfocus={() => pushHistory()}
+                onchange={commitMarkerSort}
+                oninput={(e) => patchMarkerAt(i, 'Tick', toTick((e.currentTarget as HTMLInputElement).value))}
+              />
+            </td>
+            <td>
+              <input
+                type="text"
+                value={mk.Label}
+                onfocus={() => pushHistory()}
+                oninput={(e) => patchMarkerAt(i, 'Label', (e.currentTarget as HTMLInputElement).value)}
+              />
+            </td>
+            <td>
+              <textarea
+                rows="2"
+                value={mk.Note ?? ''}
+                onfocus={() => pushHistory()}
+                oninput={(e) => patchMarkerAt(i, 'Note', (e.currentTarget as HTMLTextAreaElement).value)}
+              ></textarea>
+            </td>
+            <td><button class="mini" onclick={() => deleteMarkerAt(i)}>✕</button></td>
+          </tr>
+        {:else}
+          <tr><td colspan="4" class="empty">No markers.</td></tr>
+        {/each}
+      </tbody>
+    </table>
+    <button class="add" onclick={addMarker}>+ Marker</button>
   {/if}
 {/if}
 
@@ -355,6 +449,22 @@
     border-radius: 2px;
     font-family: var(--font-mono);
     font-size: 11px;
+  }
+  .ev textarea {
+    width: 100%;
+    background: var(--bg-2);
+    border: var(--hairline-soft);
+    color: var(--fg);
+    padding: 2px 4px;
+    border-radius: 2px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    resize: vertical;
+  }
+  .hint {
+    color: var(--fg-mute);
+    font-size: 10px;
+    margin: 0 0 var(--sp-2);
   }
   .ev .init {
     background: rgba(106, 169, 255, 0.04);

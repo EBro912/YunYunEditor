@@ -10,6 +10,11 @@
 //   - ShiftNotes leaking values when the contract says "always []"
 //   - `Bpm: 120.0` collapsing to `Bpm: 120` on stringify
 //   - parseLevelJson regressing on the missing-array crash
+//
+// Note on Markers (v0.4.0): Markers are an editor-only annotation, stripped by stringifyLevel.
+// A marker-bearing chart therefore loses its markers across export→import — that is correct,
+// not a bug. The bundled Example has no markers, and parseLevelJson defaults Markers to [] on
+// both the parsed and re-parsed sides, so this script stays green.
 
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';

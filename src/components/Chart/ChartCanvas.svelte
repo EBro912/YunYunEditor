@@ -8,7 +8,23 @@
   import type { LevelJson } from '../../lib/model/level';
   import { pushHistory } from '../../lib/state/history';
   import { transport } from '../../lib/audio/engine';
+  import { buildWaveformPeaks, type WaveformData } from '../../lib/audio/waveform';
   import { draw, hitTest, pickCell, tickToY, laneToX, type Viewport, type DrawState } from './NoteRenderer';
+
+  // Peaks are expensive to compute but stable for a given decoded buffer, so cache per buffer.
+  // A WeakMap lets the data go when the AudioBuffer is replaced (new import / unload).
+  const waveformCache = new WeakMap<AudioBuffer, WaveformData>();
+  function waveformFor(): WaveformData | null {
+    if (!$editor.showWaveform) return null;
+    const buf = transport.getAudioBuffer();
+    if (!buf) return null;
+    let wf = waveformCache.get(buf);
+    if (!wf) {
+      wf = buildWaveformPeaks(buf);
+      waveformCache.set(buf, wf);
+    }
+    return wf;
+  }
 
   let canvasEl: HTMLCanvasElement;
   let containerEl: HTMLDivElement;
@@ -71,7 +87,13 @@
     const lvl = $activeLevel;
     if (!lvl) return null;
     const tempoMap = buildTempoMap(lvl.InitBpm, lvl.BpmChangeEvents);
-    return { level: lvl, tempoMap, selection: $editor.selection };
+    return {
+      level: lvl,
+      tempoMap,
+      selection: $editor.selection,
+      waveform: waveformFor(),
+      showWaveform: $editor.showWaveform,
+    };
   }
 
   function paint() {
@@ -149,6 +171,24 @@
     }
   }
 
+  // Nearest marker whose gutter row is within a few px of the click. Mirrors the renderer's
+  // gutter geometry (x < leftGutter) so the badge/line is the clickable target.
+  function markerAt(x: number, y: number, vp: Viewport, state: DrawState) {
+    if (x >= vp.leftGutter) return null;
+    const markers = state.level.Markers ?? [];
+    let best: { Tick: number } | null = null;
+    let bestDist = 9;
+    for (const m of markers) {
+      const my = tickToY(m.Tick, vp, state.tempoMap, state.level.ScoreOffset);
+      const d = Math.abs(y - my);
+      if (d <= bestDist) {
+        bestDist = d;
+        best = m;
+      }
+    }
+    return best;
+  }
+
   function eventXY(e: MouseEvent): { x: number; y: number } {
     const r = canvasEl.getBoundingClientRect();
     return { x: e.clientX - r.left, y: e.clientY - r.top };
@@ -162,7 +202,13 @@
     const { x, y } = eventXY(e);
 
     if (x < vp.playfieldX || x >= vp.playfieldX + vp.playfieldWidth) {
-      // Click outside the lane area seeks the playhead. Inverse of secondsToY.
+      // A click on a marker's gutter row snaps the playhead exactly to that marker's tick;
+      // anywhere else in the gutter seeks to the clicked y. Inverse of secondsToY.
+      const mk = markerAt(x, y, vp, state);
+      if (mk) {
+        seekToTick(mk.Tick, state);
+        return;
+      }
       const sec = playheadSec - (y - vp.playheadY) / vp.pixelsPerSecond;
       const tick = secondsToTick(sec, state.tempoMap, state.level.ScoreOffset);
       seekToTick(tick, state);
